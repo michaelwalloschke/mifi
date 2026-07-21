@@ -1,0 +1,583 @@
+<!doctype html>
+<!-- PROTOTYPE — throwaway. Answers wayfinder ticket 04: what should "visualize the flows beautifully" look like?
+     Three variants, switchable via ?variant=A|B|C or ←/→ keys. Dummy data. Delete after direction is locked. -->
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mifi — Flow-Viz Prototyp</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1: #fcfcfb; --page: #f9f9f7;
+    --ink-1: #0b0b0b; --ink-2: #52514e; --ink-3: #898781;
+    --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
+    --good: #006300;
+    --c-wohnen: #2a78d6; --c-lebensmittel: #eb6834; --c-mobilitaet: #1baf7a;
+    --c-vertraege: #eda100; --c-freizeit: #e87ba4; --c-gesundheit: #4a3aa7;
+    --c-sonstiges: #898781; --c-sparen: #008300; --c-puffer: #c3c2b7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --surface-1: #1a1a19; --page: #0d0d0d;
+      --ink-1: #ffffff; --ink-2: #c3c2b7; --ink-3: #898781;
+      --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+      --good: #0ca30c;
+      --c-wohnen: #3987e5; --c-lebensmittel: #d95926; --c-mobilitaet: #199e70;
+      --c-vertraege: #c98500; --c-freizeit: #d55181; --c-gesundheit: #9085e9;
+      --c-sonstiges: #898781; --c-sparen: #008300; --c-puffer: #383835;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--page); color: var(--ink-1);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 24px 24px 96px;
+  }
+  h1 { font-size: 18px; font-weight: 600; }
+  h2 { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+  .sub { color: var(--ink-3); font-size: 12px; }
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px;
+  }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); margin-top: 10px; }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  svg text { font: 11px system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--ink-2); }
+  svg .lbl-strong { fill: var(--ink-1); font-weight: 600; }
+  svg .lbl-muted { fill: var(--ink-3); }
+  svg .tick { fill: var(--ink-3); font-variant-numeric: tabular-nums; }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: var(--ink-3); font-size: 12px; }
+  table { border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+  th, td { text-align: right; padding: 3px 10px; font-variant-numeric: tabular-nums; border-bottom: 1px solid var(--grid); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--ink-3); font-weight: 500; }
+
+  #tooltip {
+    position: fixed; pointer-events: none; z-index: 50; display: none;
+    background: var(--ink-1); color: var(--page);
+    padding: 6px 9px; border-radius: 6px; font-size: 12px; max-width: 260px;
+  }
+  #tooltip b { display: block; }
+
+  #switcher {
+    position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 4px; z-index: 60;
+    background: var(--ink-1); color: var(--page);
+    border-radius: 999px; padding: 6px 8px; box-shadow: 0 4px 16px rgba(0,0,0,.25);
+    font-size: 13px;
+  }
+  #switcher button {
+    all: unset; cursor: pointer; padding: 2px 10px; border-radius: 999px; font-size: 15px;
+  }
+  #switcher button:hover { background: rgba(128,128,128,.35); }
+  #switcher .name { padding: 0 6px; min-width: 190px; text-align: center; }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
+  .tile .lbl { font-size: 12px; color: var(--ink-3); }
+  .tile .val { font-size: 26px; font-weight: 600; margin: 2px 0; }
+  .tile .delta { font-size: 12px; color: var(--ink-3); }
+  .tile .delta.up { color: var(--good); }
+
+  .split { display: grid; grid-template-columns: 260px 1fr; gap: 16px; }
+  .cat-list { display: flex; flex-direction: column; gap: 2px; }
+  .cat-item {
+    all: unset; cursor: pointer; display: grid;
+    grid-template-columns: 12px 1fr auto; gap: 8px; align-items: center;
+    padding: 8px 10px; border-radius: 8px; font-size: 13px;
+  }
+  .cat-item:hover { background: rgba(128,128,128,.12); }
+  .cat-item.active { background: rgba(128,128,128,.18); font-weight: 600; }
+  .cat-item i { width: 10px; height: 10px; border-radius: 3px; }
+  .cat-item .amt { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .crumb { font-size: 12px; color: var(--ink-3); margin-bottom: 10px; }
+  .contract { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--grid); font-size: 13px; }
+  .contract .meta { color: var(--ink-3); font-size: 12px; }
+  select {
+    background: var(--surface-1); color: var(--ink-1);
+    border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 13px;
+  }
+  header.page { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 16px; gap: 12px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="tooltip"></div>
+<div id="switcher">
+  <button id="prev" aria-label="Vorherige Variante">←</button>
+  <span class="name" id="vname"></span>
+  <button id="next" aria-label="Nächste Variante">→</button>
+</div>
+
+<script>
+'use strict';
+/* ---------- dummy data (deterministic) ---------- */
+const MONTHS = ['Aug 25','Sep 25','Okt 25','Nov 25','Dez 25','Jan 26','Feb 26','Mär 26','Apr 26','Mai 26','Jun 26','Jul 26'];
+const CUR = MONTHS.length - 1; // "current" month index
+
+const CATS = [
+  { id:'wohnen',       name:'Wohnen',          color:'var(--c-wohnen)',       base:1450, amp:60,
+    subs:[['Miete',0.80],['Nebenkosten',0.12],['Strom',0.08]],
+    contracts:[['Miete Musterstr. 12','1.200 € · monatlich'],['Stadtwerke Strom','98 € · monatlich']] },
+  { id:'lebensmittel', name:'Lebensmittel',    color:'var(--c-lebensmittel)', base:520,  amp:70,
+    subs:[['Supermarkt',0.78],['Bäcker',0.12],['Drogerie',0.10]], contracts:[] },
+  { id:'mobilitaet',   name:'Mobilität',       color:'var(--c-mobilitaet)',   base:210,  amp:50,
+    subs:[['Deutschlandticket',0.28],['Tanken',0.45],['Auto & Werkstatt',0.27]],
+    contracts:[['Deutschlandticket','58 € · monatlich']] },
+  { id:'vertraege',    name:'Verträge & Abos', color:'var(--c-vertraege)',    base:185,  amp:10,
+    subs:[['Versicherungen',0.36],['Internet',0.24],['Handy',0.18],['Streaming',0.22]],
+    contracts:[['Haftpflicht','68 € · jährlich'],['Internet 100 Mbit','45 € · monatlich'],['Mobilfunk','19,99 € · monatlich'],['Netflix + Spotify','28 € · monatlich']] },
+  { id:'freizeit',     name:'Freizeit',        color:'var(--c-freizeit)',     base:260,  amp:120,
+    subs:[['Restaurants',0.55],['Sport',0.15],['Kultur & Sonstiges',0.30]],
+    contracts:[['Fitnessstudio','35 € · monatlich']] },
+  { id:'gesundheit',   name:'Gesundheit',      color:'var(--c-gesundheit)',   base:90,   amp:40,
+    subs:[['Apotheke',0.5],['Arzt & Zuzahlung',0.5]], contracts:[] },
+  { id:'sonstiges',    name:'Sonstiges',       color:'var(--c-sonstiges)',    base:140,  amp:80,
+    subs:[['Geschenke',0.4],['Bargeld',0.35],['Diverses',0.25]], contracts:[] },
+];
+// deterministic monthly wobble per category
+CATS.forEach((c, ci) => {
+  c.monthly = MONTHS.map((_, m) => Math.round(c.base + c.amp * Math.sin(m * 1.7 + ci * 2.3)));
+});
+CATS.find(c=>c.id==='freizeit').monthly[4] += 220;   // Dez
+CATS.find(c=>c.id==='sonstiges').monthly[4] += 180;  // Dez Geschenke
+
+const INCOME = [
+  { name:'Gehalt',            monthly: MONTHS.map(()=>4200) },
+  { name:'Sonstige Einnahmen', monthly: MONTHS.map((_,m)=>Math.round(120 + 110*Math.sin(m*2.4))) },
+];
+const SAVINGS = [['Depot-Sparplan',600],['Tagesgeld',400]];
+
+const incomeAt   = m => INCOME.reduce((s,i)=>s+i.monthly[m],0);
+const expensesAt = m => CATS.reduce((s,c)=>s+c.monthly[m],0);
+const savingsAt  = m => SAVINGS.reduce((s,[,v])=>s+v,0);
+const bufferAt   = m => incomeAt(m) - expensesAt(m) - savingsAt(m);
+
+const eur = v => v.toLocaleString('de-DE') + ' €';
+const pct = v => (v*100).toFixed(0).replace('.',',') + ' %';
+
+/* ---------- helpers ---------- */
+const S = 'http://www.w3.org/2000/svg';
+function el(name, attrs = {}, parent) {
+  const n = document.createElementNS(S, name);
+  for (const [k,v] of Object.entries(attrs)) n.setAttribute(k, v);
+  if (parent) parent.appendChild(n);
+  return n;
+}
+function div(cls, html, parent) {
+  const d = document.createElement('div');
+  if (cls) d.className = cls;
+  if (html !== undefined) d.innerHTML = html;
+  if (parent) parent.appendChild(d);
+  return d;
+}
+const tooltip = document.getElementById('tooltip');
+function hover(node, html) {
+  node.addEventListener('mousemove', e => {
+    tooltip.style.display = 'block';
+    tooltip.innerHTML = html();
+    const x = Math.min(e.clientX + 14, innerWidth - tooltip.offsetWidth - 8);
+    tooltip.style.left = x + 'px';
+    tooltip.style.top  = (e.clientY + 14) + 'px';
+  });
+  node.addEventListener('mouseleave', () => tooltip.style.display = 'none');
+}
+function legend(items, parent) {
+  const l = div('legend', '', parent);
+  items.forEach(([name,color]) => {
+    const s = document.createElement('span');
+    s.innerHTML = `<i style="background:${color}"></i>${name}`;
+    l.appendChild(s);
+  });
+}
+function monthTable(parent) {
+  const det = document.createElement('details');
+  det.innerHTML = '<summary>Als Tabelle anzeigen</summary>';
+  const t = document.createElement('table');
+  let h = '<tr><th>Kategorie</th>' + MONTHS.map(m=>`<th>${m}</th>`).join('') + '</tr>';
+  h += '<tr><td>Einnahmen</td>' + MONTHS.map((_,m)=>`<td>${eur(incomeAt(m))}</td>`).join('') + '</tr>';
+  CATS.forEach(c => h += `<tr><td>${c.name}</td>` + c.monthly.map(v=>`<td>${eur(v)}</td>`).join('') + '</tr>');
+  h += '<tr><td>Sparen</td>' + MONTHS.map((_,m)=>`<td>${eur(savingsAt(m))}</td>`).join('') + '</tr>';
+  t.innerHTML = h;
+  det.appendChild(t);
+  parent.appendChild(det);
+}
+
+/* ---------- Sankey (3 columns: Einnahmen → Kategorien+Sparen+Puffer → Sparziele) ---------- */
+function sankey(parent, m, { width = 900, height = 440 } = {}) {
+  const svg = el('svg', { viewBox:`0 0 ${width} ${height}`, width:'100%' }, parent);
+  const NW = 12, GAP = 10, PAD_T = 24, PAD_B = 8;
+  const labelW = 205;
+  const colX = [labelW, width/2 - NW/2, width - labelW - NW];
+
+  const mid = CATS.map(c => ({ name:c.name, color:c.color, value:c.monthly[m], cat:c }))
+    .concat([{ name:'Sparen', color:'var(--c-sparen)', value:savingsAt(m) },
+             { name:'Puffer (Giro)', color:'var(--c-puffer)', value:bufferAt(m) }]);
+  const left  = INCOME.map(i => ({ name:i.name, color:'var(--axis)', value:i.monthly[m] }));
+  const right = SAVINGS.map(([name,v]) => ({ name, color:'var(--c-sparen)', value:v }));
+
+  const colSum = col => col.reduce((s,n)=>s+n.value,0);
+  const avail = height - PAD_T - PAD_B;
+  const maxTotal = Math.max(...[left,mid,right].map(c => colSum(c) )); // right is smaller — same scale
+  const pxPerEur = (avail - GAP * (mid.length - 1)) / maxTotal;
+
+  function place(col, x) {
+    const total = col.reduce((s,n)=>s + n.value*pxPerEur, 0) + GAP*(col.length-1);
+    let y = PAD_T + (avail - total)/2;
+    col.forEach(n => {
+      n.x = x; n.y = y; n.h = Math.max(2, n.value * pxPerEur);
+      n.out = n.y; n.in = n.y;
+      y += n.h + GAP;
+    });
+  }
+  place(left, colX[0]); place(mid, colX[1]); place(right, colX[2]);
+
+  const linksG = el('g', {}, svg);
+  function link(a, b, value, color) {
+    const h = value * pxPerEur;
+    const x0 = a.x + NW, x1 = b.x, mx = (x0+x1)/2;
+    const sy = a.out, ty = b.in;
+    a.out += h; b.in += h;
+    const p = el('path', {
+      d: `M${x0},${sy} C${mx},${sy} ${mx},${ty} ${x1},${ty} L${x1},${ty+h} C${mx},${ty+h} ${mx},${sy+h} ${x0},${sy+h} Z`,
+      fill: color, 'fill-opacity': 0.30
+    }, linksG);
+    p.addEventListener('mouseenter', () => p.setAttribute('fill-opacity', 0.55));
+    p.addEventListener('mouseleave', () => p.setAttribute('fill-opacity', 0.30));
+    hover(p, () => `<b>${a.name} → ${b.name}</b>${eur(Math.round(value))} · ${MONTHS[m]}`);
+    return p;
+  }
+  // income → mid, proportional split across income sources
+  const incTotal = colSum(left);
+  mid.forEach(node => left.forEach(src => link(src, node, node.value * src.value/incTotal, node.color)));
+  // Sparen → savings targets
+  const sparenNode = mid.find(n => n.name === 'Sparen');
+  right.forEach(t => link(sparenNode, t, t.value, 'var(--c-sparen)'));
+
+  // nodes + direct labels (relief for light-mode contrast WARN)
+  [left, mid, right].forEach((col, ci) => {
+    col.forEach(n => {
+      el('rect', { x:n.x, y:n.y, width:NW, height:n.h, rx:4, fill:n.color }, svg);
+      const t = el('text', { y: n.y + Math.max(n.h/2, 6) + 4 }, svg);
+      const anchorLeft = ci === 0;
+      t.setAttribute('x', anchorLeft ? n.x - 8 : n.x + NW + 8);
+      t.setAttribute('text-anchor', anchorLeft ? 'end' : 'start');
+      t.innerHTML = `<tspan class="lbl-strong">${n.name}</tspan><tspan class="lbl-muted" dx="6">${eur(n.value)}</tspan>`;
+    });
+  });
+  return svg;
+}
+
+/* ---------- stacked monthly columns + income line ---------- */
+function trendChart(parent, { width = 900, height = 300, only = null, sel = -1, onSelect = null } = {}) {
+  const svg = el('svg', { viewBox:`0 0 ${width} ${height}`, width:'100%' }, parent);
+  const PAD_L = 52, PAD_R = 12, PAD_T = 14, PAD_B = 24;
+  const w = width - PAD_L - PAD_R, h = height - PAD_T - PAD_B;
+  const cats = only ? [only] : CATS;
+  const maxV = only
+    ? Math.max(...only.monthly) * 1.15
+    : Math.max(...MONTHS.map((_,m)=>incomeAt(m))) * 1.08;
+  const y = v => PAD_T + h - v/maxV*h;
+  const band = w / MONTHS.length;
+  const barW = Math.min(24, band * 0.55);
+
+  // gridlines + ticks (clean steps)
+  const step = maxV > 3000 ? 1000 : maxV > 800 ? 250 : 100;
+  for (let v = 0; v <= maxV; v += step) {
+    el('line', { x1:PAD_L, x2:width-PAD_R, y1:y(v), y2:y(v), stroke: v===0?'var(--axis)':'var(--grid)', 'stroke-width':1 }, svg);
+    el('text', { x:PAD_L-8, y:y(v)+4, 'text-anchor':'end', class:'tick' }, svg).textContent = v.toLocaleString('de-DE');
+  }
+
+  MONTHS.forEach((mon, m) => {
+    const cx = PAD_L + band*m + band/2;
+    let yTop = y(0);
+    const g = el('g', {}, svg);
+    if (onSelect) { g.style.cursor = 'pointer'; g.addEventListener('click', ()=>onSelect(m)); }
+    if (sel >= 0 && m === sel)
+      el('rect', { x:cx-band/2+2, y:PAD_T, width:band-4, height:h, fill:'var(--grid)', 'fill-opacity':0.5, rx:6 }, g);
+    cats.forEach((c, ci) => {
+      const v = c.monthly[m];
+      const segH = Math.max(0, v/maxV*h - 2);           // 2px surface gap between segments
+      const yy = yTop - v/maxV*h;
+      const isTop = ci === cats.length - 1;
+      const r = isTop ? 4 : 0;                           // rounded data-end, square below
+      el('path', { d: roundedTop(cx-barW/2, yy, barW, segH, r), fill:c.color }, g)
+        .__v = v;
+      const seg = g.lastChild;
+      hover(seg, () => `<b>${c.name} · ${mon}</b>${eur(v)} von ${eur(expensesAt(m))} Ausgaben`);
+      yTop = yy;
+    });
+    el('text', { x:cx, y:height-8, 'text-anchor':'middle', class:'tick' }, svg).textContent = mon.split(' ')[0];
+  });
+
+  if (!only) {
+    // income line, 2px, end-dot with surface ring
+    const pts = MONTHS.map((_,m)=>[PAD_L + band*m + band/2, y(incomeAt(m))]);
+    el('path', { d:'M'+pts.map(p=>p.join(',')).join(' L'), fill:'none', stroke:'var(--ink-2)', 'stroke-width':2, 'stroke-linejoin':'round', 'stroke-linecap':'round' }, svg);
+    const [ex,ey] = pts[pts.length-1];
+    el('circle', { cx:ex, cy:ey, r:6, fill:'var(--surface-1)' }, svg);
+    const dot = el('circle', { cx:ex, cy:ey, r:4, fill:'var(--ink-2)' }, svg);
+    hover(dot, () => `<b>Einnahmen · ${MONTHS[CUR]}</b>${eur(incomeAt(CUR))}`);
+    el('text', { x:ex-6, y:ey-10, 'text-anchor':'end', class:'lbl-strong' }, svg).textContent = 'Einnahmen ' + eur(incomeAt(CUR));
+  }
+  return svg;
+}
+function roundedTop(x, y, w, h, r) {
+  if (h <= 0) return 'M0,0';
+  r = Math.min(r, h, w/2);
+  return `M${x},${y+h} L${x},${y+r} Q${x},${y} ${x+r},${y} L${x+w-r},${y} Q${x+w},${y} ${x+w},${y+r} L${x+w},${y+h} Z`;
+}
+
+/* ---------- ranked horizontal category bars ---------- */
+function rankedBars(parent, m, { width = 420, onSelect = null, sel = null } = {}) {
+  const rows = [...CATS].sort((a,b)=>b.monthly[m]-a.monthly[m]);
+  const rowH = 34, height = rows.length*rowH + 4;
+  const svg = el('svg', { viewBox:`0 0 ${width} ${height}`, width:'100%' }, parent);
+  const labelW = 130, valW = 66;
+  const maxV = rows[0].monthly[m];
+  rows.forEach((c, i) => {
+    const yy = i*rowH + 6;
+    const bw = Math.max(3, (width - labelW - valW) * c.monthly[m]/maxV);
+    const g = el('g', {}, svg);
+    if (onSelect) { g.style.cursor = 'pointer'; g.addEventListener('click', ()=>onSelect(c)); }
+    if (sel && sel.id === c.id)
+      el('rect', { x:0, y:yy-4, width, height:rowH-2, fill:'var(--grid)', 'fill-opacity':0.5, rx:6 }, g);
+    el('text', { x:labelW-10, y:yy+15, 'text-anchor':'end', class:'lbl-strong' }, svg).textContent = c.name;
+    const bar = el('path', { d:`M${labelW},${yy} L${labelW+bw-4},${yy} Q${labelW+bw},${yy} ${labelW+bw},${yy+4} L${labelW+bw},${yy+18} Q${labelW+bw},${yy+22} ${labelW+bw-4},${yy+22} L${labelW},${yy+22} Z`, fill:c.color }, g);
+    hover(bar, () => `<b>${c.name} · ${MONTHS[m]}</b>${eur(c.monthly[m])} · ${pct(c.monthly[m]/expensesAt(m))} der Ausgaben`);
+    el('text', { x:labelW+bw+8, y:yy+15, class:'tick' }, svg).textContent = eur(c.monthly[m]);
+  });
+  return svg;
+}
+
+/* ---------- sparkline ---------- */
+function sparkline(parent, values, color, { width=110, height=30 } = {}) {
+  const svg = el('svg', { viewBox:`0 0 ${width} ${height}`, width, height }, parent);
+  const maxV = Math.max(...values), minV = Math.min(...values);
+  const y = v => 4 + (height-8) * (1 - (v-minV)/((maxV-minV)||1));
+  const x = i => 4 + (width-8) * i/(values.length-1);
+  el('path', { d:'M'+values.map((v,i)=>`${x(i)},${y(v)}`).join(' L'), fill:'none', stroke:'var(--axis)', 'stroke-width':2, 'stroke-linejoin':'round' }, svg);
+  el('circle', { cx:x(values.length-1), cy:y(values[values.length-1]), r:3.5, fill:color }, svg);
+  return svg;
+}
+
+/* ================= VARIANTS ================= */
+const app = document.getElementById('app');
+const catLegend = CATS.map(c=>[c.name, `var(--c-${c.id})`]);
+
+/* --- A: Flow-Hero — der Sankey ist die App --- */
+function variantA() {
+  let month = CUR;
+  function render() {
+    app.innerHTML = '';
+    const header = document.createElement('header'); header.className='page'; app.appendChild(header);
+    header.innerHTML = `<div><h1>Geldfluss · ${MONTHS[month]}</h1>
+      <div class="sub">Wohin ist das Geld geflossen? Einnahmen → Kategorien → Sparziele</div></div>`;
+    const selWrap = div('', '', header);
+    const sel = document.createElement('select');
+    MONTHS.forEach((mn,i)=>{ const o=document.createElement('option'); o.value=i; o.textContent=mn; if(i===month)o.selected=true; sel.appendChild(o); });
+    sel.addEventListener('change', ()=>{ month=+sel.value; render(); });
+    selWrap.appendChild(sel);
+
+    const flow = div('card', '', app);
+    sankey(flow, month, { width: 980, height: 460 });
+
+    const trendCard = div('card', '', app); trendCard.style.marginTop='16px';
+    trendCard.innerHTML = `<h2>Monatsverlauf</h2><div class="sub">Ausgaben gestapelt, Einnahmen als Linie · Monat anklicken, um den Fluss oben zu wechseln</div>`;
+    trendChart(trendCard, { width: 980, height: 260, sel: month, onSelect: m => { month = m; render(); } });
+    legend(catLegend.concat([['Einnahmen (Linie)','var(--ink-2)']]), trendCard);
+    monthTable(trendCard);
+  }
+  render();
+}
+
+/* --- B: Dashboard — Kennzahlen zuerst, Fluss ist eine Karte von vielen --- */
+function variantB() {
+  let selCat = null;
+  function render() {
+    app.innerHTML = `<header class="page"><div><h1>Übersicht</h1>
+      <div class="sub">Letzte 12 Monate · Stand ${MONTHS[CUR]}</div></div></header>`;
+
+    const inc = incomeAt(CUR), exp = expensesAt(CUR), sav = savingsAt(CUR);
+    const quote = sav / inc;
+    const prevQuote = savingsAt(CUR-1) / incomeAt(CUR-1);
+    const tiles = div('tiles', '', app);
+    const tileData = [
+      ['Einnahmen', eur(inc), null, INCOME[0].monthly.map((_,m)=>incomeAt(m)), 'var(--c-wohnen)'],
+      ['Ausgaben', eur(exp), `${eur(exp - expensesAt(CUR-1))} ggü. ${MONTHS[CUR-1]}`, MONTHS.map((_,m)=>expensesAt(m)), 'var(--c-lebensmittel)'],
+      ['Sparquote', pct(quote), `${quote>=prevQuote?'↑':'↓'} ${pct(Math.abs(quote-prevQuote))}-Pkt. ggü. Vormonat`, MONTHS.map((_,m)=>savingsAt(m)/incomeAt(m)*100), 'var(--c-sparen)'],
+      ['Puffer übrig', eur(bufferAt(CUR)), null, MONTHS.map((_,m)=>bufferAt(m)), 'var(--c-vertraege)'],
+    ];
+    tileData.forEach(([lbl,val,delta,trend,color],i) => {
+      const t = div('card tile', `<div class="lbl">${lbl}</div><div class="val">${val}</div>`, tiles);
+      if (delta) div('delta' + (i===2 && quote>=prevQuote ? ' up' : ''), delta, t);
+      sparkline(t, trend, color);
+    });
+
+    const trendCard = div('card', '', app); trendCard.style.marginTop='16px';
+    trendCard.innerHTML = `<h2>Einnahmen & Ausgaben</h2><div class="sub">Ausgaben nach Kategorie, gestapelt · Einnahmen als Linie</div>`;
+    trendChart(trendCard, { width: 980, height: 280 });
+    legend(catLegend.concat([['Einnahmen (Linie)','var(--ink-2)']]), trendCard);
+
+    const row = div('row', '', app); row.style.marginTop='16px';
+    const catCard = div('card', `<h2>Kategorien · ${MONTHS[CUR]}</h2><div class="sub">Anklicken für Details</div>`, row);
+    catCard.style.flex = '1 1 380px';
+    rankedBars(catCard, CUR, { onSelect: c => { selCat = c; render(); }, sel: selCat });
+
+    const detail = div('card', '', row);
+    detail.style.flex = '1 1 380px';
+    if (selCat) {
+      detail.innerHTML = `<h2>${selCat.name} · ${MONTHS[CUR]}</h2><div class="sub">${eur(selCat.monthly[CUR])} gesamt</div>`;
+      const total = selCat.monthly[CUR];
+      const subSvg = el('svg', { viewBox:'0 0 420 '+(selCat.subs.length*30+4), width:'100%' }, detail);
+      const maxS = Math.max(...selCat.subs.map(([,sh])=>sh)) * total;
+      selCat.subs.forEach(([name,share],i) => {
+        const v = Math.round(total*share), yy = i*30+4;
+        const bw = Math.max(3, 220 * v/maxS);
+        el('text', { x:120, y:yy+14, 'text-anchor':'end', class:'lbl-strong' }, subSvg).textContent = name;
+        const bar = el('rect', { x:130, y:yy, width:bw, height:20, rx:4, fill:selCat.color }, subSvg);
+        hover(bar, () => `<b>${name}</b>${eur(v)}`);
+        el('text', { x:130+bw+8, y:yy+14, class:'tick' }, subSvg).textContent = eur(v);
+      });
+      if (selCat.contracts.length) {
+        div('sub', 'Erkannte Verträge', detail).style.marginTop = '10px';
+        selCat.contracts.forEach(([n,meta]) => div('contract', `<span>${n}</span><span class="meta">${meta}</span>`, detail));
+      }
+    } else {
+      detail.innerHTML = `<h2>Details</h2><div class="sub">Links eine Kategorie wählen — hier erscheinen Unterkategorien und erkannte Verträge.</div>`;
+    }
+
+    const flowCard = div('card', `<h2>Geldfluss · ${MONTHS[CUR]}</h2>`, app);
+    flowCard.style.marginTop = '16px';
+    sankey(flowCard, CUR, { width: 980, height: 380 });
+    monthTable(flowCard);
+  }
+  render();
+}
+
+/* --- C: Drilldown-Ledger — Kategorien-Navigation, kein Sankey --- */
+function variantC() {
+  let selCat = CATS[0];
+  function render() {
+    app.innerHTML = `<header class="page"><div><h1>Kategorien</h1>
+      <div class="sub">Master–Detail: links wählen, rechts eintauchen · Stand ${MONTHS[CUR]}</div></div></header>`;
+    const split = div('split', '', app);
+
+    const listCard = div('card', '', split);
+    const list = div('cat-list', '', listCard);
+    [...CATS].sort((a,b)=>b.monthly[CUR]-a.monthly[CUR]).forEach(c => {
+      const b = document.createElement('button');
+      b.className = 'cat-item' + (c.id===selCat.id ? ' active' : '');
+      b.innerHTML = `<i style="background:${c.color}"></i><span>${c.name}</span><span class="amt">${eur(c.monthly[CUR])}</span>`;
+      b.addEventListener('click', ()=>{ selCat=c; render(); });
+      list.appendChild(b);
+    });
+    div('sub', `Ausgaben gesamt: <b>${eur(expensesAt(CUR))}</b> · Sparen: <b>${eur(savingsAt(CUR))}</b>`, listCard).style.marginTop='12px';
+
+    const detail = div('card', '', split);
+    div('crumb', `Alle Kategorien › <b>${selCat.name}</b>`, detail);
+    detail.insertAdjacentHTML('beforeend',
+      `<h2>${selCat.name}</h2>
+       <div class="sub">${eur(selCat.monthly[CUR])} in ${MONTHS[CUR]} · Ø ${eur(Math.round(selCat.monthly.reduce((a,b)=>a+b)/12))} pro Monat</div>`);
+    trendChart(detail, { width: 760, height: 220, only: selCat });
+
+    const row = div('row', '', detail); row.style.marginTop='14px';
+    const subCard = div('', `<h2>Unterkategorien · ${MONTHS[CUR]}</h2>`, row);
+    subCard.style.flex='1 1 300px';
+    const total = selCat.monthly[CUR];
+    const subSvg = el('svg', { viewBox:'0 0 380 '+(selCat.subs.length*30+4), width:'100%' }, subCard);
+    selCat.subs.forEach(([name,share],i) => {
+      const v = Math.round(total*share), yy = i*30+4;
+      const bw2 = Math.max(3, 180 * share/Math.max(...selCat.subs.map(s=>s[1])));
+      el('text', { x:115, y:yy+14, 'text-anchor':'end', class:'lbl-strong' }, subSvg).textContent = name;
+      const bar = el('rect', { x:125, y:yy, width:bw2, height:20, rx:4, fill:selCat.color }, subSvg);
+      hover(bar, () => `<b>${name}</b>${eur(v)} · ${pct(share)}`);
+      el('text', { x:125+bw2+8, y:yy+14, class:'tick' }, subSvg).textContent = eur(v);
+    });
+
+    const conCard = div('', `<h2>Erkannte Verträge</h2>`, row);
+    conCard.style.flex='1 1 260px';
+    if (selCat.contracts.length)
+      selCat.contracts.forEach(([n,meta]) => div('contract', `<span>${n}</span><span class="meta">${meta}</span>`, conCard));
+    else div('sub', 'Keine wiederkehrenden Zahlungen in dieser Kategorie erkannt.', conCard);
+
+    monthTable(detail);
+  }
+  render();
+}
+
+/* --- D: Hybrid — Kacheln aus B + Sankey-Hero aus A --- */
+function variantD() {
+  let month = CUR;
+  function render() {
+    app.innerHTML = '';
+    const header = document.createElement('header'); header.className = 'page'; app.appendChild(header);
+    header.innerHTML = `<div><h1>Geldfluss · ${MONTHS[month]}</h1>
+      <div class="sub">Einnahmen → Kategorien → Sparziele</div></div>`;
+    const selWrap = div('', '', header);
+    const sel = document.createElement('select');
+    MONTHS.forEach((mn,i)=>{ const o=document.createElement('option'); o.value=i; o.textContent=mn; if(i===month)o.selected=true; sel.appendChild(o); });
+    sel.addEventListener('change', ()=>{ month=+sel.value; render(); });
+    selWrap.appendChild(sel);
+
+    const inc = incomeAt(month), exp = expensesAt(month), sav = savingsAt(month);
+    const quote = sav / inc;
+    const prev = month > 0 ? month - 1 : null;
+    const tiles = div('tiles', '', app);
+    const tileData = [
+      ['Einnahmen', eur(inc), null, MONTHS.map((_,m)=>incomeAt(m)), 'var(--c-wohnen)'],
+      ['Ausgaben', eur(exp), prev===null?null:`${exp-expensesAt(prev)>=0?'+':''}${eur(exp - expensesAt(prev))} ggü. ${MONTHS[prev]}`, MONTHS.map((_,m)=>expensesAt(m)), 'var(--c-lebensmittel)'],
+      ['Sparquote', pct(quote), prev===null?null:`${quote>=savingsAt(prev)/incomeAt(prev)?'↑':'↓'} ggü. ${MONTHS[prev]}`, MONTHS.map((_,m)=>savingsAt(m)/incomeAt(m)*100), 'var(--c-sparen)'],
+      ['Puffer übrig', eur(bufferAt(month)), null, MONTHS.map((_,m)=>bufferAt(m)), 'var(--c-vertraege)'],
+    ];
+    tileData.forEach(([lbl,val,delta,trend,color],i) => {
+      const t = div('card tile', `<div class="lbl">${lbl}</div><div class="val">${val}</div>`, tiles);
+      if (delta) div('delta' + (i===2 && delta.startsWith('↑') ? ' up' : ''), delta, t);
+      sparkline(t, trend, color);
+    });
+
+    const flow = div('card', '', app); flow.style.marginTop = '16px';
+    sankey(flow, month, { width: 980, height: 460 });
+
+    const trendCard = div('card', '', app); trendCard.style.marginTop = '16px';
+    trendCard.innerHTML = `<h2>Monatsverlauf</h2><div class="sub">Ausgaben gestapelt, Einnahmen als Linie · Monat anklicken, um Kacheln und Fluss zu wechseln</div>`;
+    trendChart(trendCard, { width: 980, height: 260, sel: month, onSelect: m => { month = m; render(); } });
+    legend(catLegend.concat([['Einnahmen (Linie)','var(--ink-2)']]), trendCard);
+    monthTable(trendCard);
+  }
+  render();
+}
+
+/* ---------- switcher ---------- */
+const VARIANTS = [
+  ['D', 'Hybrid (Kacheln + Sankey-Hero)', variantD],
+  ['A', 'Flow-Hero (Sankey zuerst)', variantA],
+  ['B', 'Dashboard (Kennzahlen zuerst)', variantB],
+  ['C', 'Drilldown-Ledger (ohne Sankey)', variantC],
+];
+const initial = (new URLSearchParams(location.search).get('variant') || 'D').toUpperCase();
+let idx = Math.max(0, VARIANTS.findIndex(([k]) => k === initial));
+function show(i) {
+  idx = (i + VARIANTS.length) % VARIANTS.length;
+  const [key, name, fn] = VARIANTS[idx];
+  try { history.replaceState(null, '', '?variant=' + key); } catch (e) { /* file:// blocks this */ }
+  document.getElementById('vname').textContent = `${key} — ${name}`;
+  tooltip.style.display = 'none';
+  fn();
+}
+document.getElementById('prev').addEventListener('click', () => show(idx - 1));
+document.getElementById('next').addEventListener('click', () => show(idx + 1));
+document.addEventListener('keydown', e => {
+  const t = e.target;
+  if (t.matches('input, textarea, select, [contenteditable]')) return;
+  if (e.key === 'ArrowLeft') show(idx - 1);
+  if (e.key === 'ArrowRight') show(idx + 1);
+});
+show(idx);
+</script>
+</body>
+</html>
