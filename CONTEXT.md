@@ -34,8 +34,9 @@ _Avoid_: tag, label, Hauptkategorie/Unterkategorie (use parent/subcategory)
 A recognized recurring money flow with an external counterparty, either direction — Netflix and salary both. Carries normalized counterparty, expected Amount with tolerance, interval (weekly/monthly/quarterly/yearly), Category, and lifecycle: detected → confirmed | dismissed, plus ended. Transactions link to at most one Contract; amount history derives from linked Transactions. Recurring internal moves (ETF sparplan, Giro→Tagesgeld) are Transfer patterns, never Contracts.
 _Avoid_: subscription, standing order, Vertrag (all are Contracts)
 
-**Budget** *(provisional — mechanic undecided)*:
-A target Amount attached to one Category per period. Rollover, period definition, and envelope semantics are deliberately unpinned until the budgeting mechanic is chosen.
+**Budget**:
+A monthly target Amount on one expense-kind Category, at parent or subcategory level independently (parent counts rolled-up spending, sub counts itself; no sum constraint). Calendar-month period, no rollover in either direction. Spent = net sum of the month's Splits in the Category; refunds reduce it. Targets are effective-dated append-only rows — past months judge against the target then in force; a null Amount ends the budget. States: on-track < 80 %, warning ≥ 80 %, over ≥ 100 %; never pace-adjusted.
+_Avoid_: envelope, allocation, rollover
 
 **Snapshot**:
 An append-only, per-sync-day observation: an Account balance, a depot position (ISIN, quantity, valuation), or a price. Ground truth for all valuation over time; same-day re-sync upserts.
