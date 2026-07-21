@@ -38,6 +38,10 @@ _Avoid_: subscription, standing order, Vertrag (all are Contracts)
 A monthly target Amount on one expense-kind Category, at parent or subcategory level independently (parent counts rolled-up spending, sub counts itself; no sum constraint). Calendar-month period, no rollover in either direction. Spent = net sum of the month's Splits in the Category; refunds reduce it. Targets are effective-dated append-only rows — past months judge against the target then in force; a null Amount ends the budget. States: on-track < 80 %, warning ≥ 80 %, over ≥ 100 %; never pace-adjusted.
 _Avoid_: envelope, allocation, rollover
 
+**Sync Run**:
+A manually triggered fetch across all syncable sources (never scheduled, never on launch). Commit unit is one Account: its new Transactions and Snapshots land in one atomic write, or nothing on failure — no partial state. Transfer detection and Contract matching re-run once at the end of the run. Per-source sync state is last success timestamp plus last error, nothing more.
+_Avoid_: background refresh, sync history/log
+
 **Snapshot**:
 An append-only, per-sync-day observation: an Account balance, a depot position (ISIN, quantity, valuation), or a price. Ground truth for all valuation over time; same-day re-sync upserts.
 _Avoid_: history table, cache
