@@ -1,0 +1,986 @@
+<!doctype html>
+<!-- PROTOTYPE — throwaway. Answers wayfinder ticket 18: screen map + navigation + design language for the whole app.
+     Main screen is locked (ticket 04, variant D: tiles → Sankey → trend). The variants here differ in NAVIGATION
+     STRUCTURE, not screen content: A sidebar, B top tabs, C hub-and-spoke. Screens are shared across variants.
+     Switch via ?variant=A|B|C or ←/→ keys. Screens via hash (#/transaktionen …). Dummy data. Delete after direction locked. -->
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mifi — UI-IA Prototyp</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1: #fcfcfb; --page: #f9f9f7;
+    --ink-1: #0b0b0b; --ink-2: #52514e; --ink-3: #898781;
+    --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
+    --good: #006300; --warn: #9a5b00; --bad: #b91c1c;
+    --c-wohnen: #2a78d6; --c-lebensmittel: #eb6834; --c-mobilitaet: #1baf7a;
+    --c-vertraege: #eda100; --c-freizeit: #e87ba4; --c-gesundheit: #4a3aa7;
+    --c-sonstiges: #898781; --c-sparen: #008300; --c-puffer: #c3c2b7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --surface-1: #1a1a19; --page: #0d0d0d;
+      --ink-1: #ffffff; --ink-2: #c3c2b7; --ink-3: #898781;
+      --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+      --good: #0ca30c; --warn: #f0a13c; --bad: #f47171;
+      --c-wohnen: #3987e5; --c-lebensmittel: #d95926; --c-mobilitaet: #199e70;
+      --c-vertraege: #c98500; --c-freizeit: #d55181; --c-gesundheit: #9085e9;
+      --c-sonstiges: #898781; --c-sparen: #008300; --c-puffer: #383835;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--page); color: var(--ink-1);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  h1 { font-size: 18px; font-weight: 600; }
+  h2 { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+  .sub { color: var(--ink-3); font-size: 12px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; }
+  .num { font-variant-numeric: tabular-nums; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); margin-top: 10px; }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  svg text { font: 11px system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--ink-2); }
+  svg .lbl-strong { fill: var(--ink-1); font-weight: 600; }
+  svg .lbl-muted { fill: var(--ink-3); }
+  svg .tick { fill: var(--ink-3); font-variant-numeric: tabular-nums; }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: var(--ink-3); font-size: 12px; }
+  table { border-collapse: collapse; font-size: 13px; width: 100%; }
+  th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--grid); }
+  th:first-child, td:first-child, th.l, td.l { text-align: left; }
+  th { color: var(--ink-3); font-weight: 500; font-size: 12px; }
+  select, input[type=search] {
+    background: var(--surface-1); color: var(--ink-1);
+    border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 13px;
+  }
+  button.btn {
+    all: unset; cursor: pointer; font-size: 13px; padding: 5px 12px; border-radius: 7px;
+    border: 1px solid var(--border); background: var(--surface-1);
+  }
+  button.btn:hover { background: rgba(128,128,128,.12); }
+  button.btn.primary { background: var(--ink-1); color: var(--page); border-color: transparent; font-weight: 600; }
+  button.btn.quiet { border-color: transparent; color: var(--ink-2); }
+  header.page { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 16px; gap: 12px; flex-wrap: wrap; }
+
+  #tooltip {
+    position: fixed; pointer-events: none; z-index: 80; display: none;
+    background: var(--ink-1); color: var(--page);
+    padding: 6px 9px; border-radius: 6px; font-size: 12px; max-width: 260px;
+  }
+  #tooltip b { display: block; }
+
+  #switcher {
+    position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 4px; z-index: 90;
+    background: var(--ink-1); color: var(--page);
+    border-radius: 999px; padding: 6px 8px; box-shadow: 0 4px 16px rgba(0,0,0,.25); font-size: 13px;
+  }
+  #switcher button { all: unset; cursor: pointer; padding: 2px 10px; border-radius: 999px; font-size: 15px; }
+  #switcher button:hover { background: rgba(128,128,128,.35); }
+  #switcher .name { padding: 0 6px; min-width: 230px; text-align: center; }
+
+  /* tiles (from locked main screen) */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
+  .tile .lbl { font-size: 12px; color: var(--ink-3); }
+  .tile .val { font-size: 26px; font-weight: 600; margin: 2px 0; }
+  .tile .delta { font-size: 12px; color: var(--ink-3); }
+  .tile .delta.up { color: var(--good); }
+  a.tilelink { text-decoration: none; color: inherit; display: block; }
+  a.tilelink:hover .card, .card.clickable:hover { border-color: var(--axis); }
+
+  /* shells */
+  .layout-sidebar { display: grid; grid-template-columns: 216px 1fr; min-height: 100vh; }
+  aside.side {
+    border-right: 1px solid var(--border); background: var(--surface-1);
+    padding: 20px 12px 90px; display: flex; flex-direction: column; gap: 2px;
+    position: sticky; top: 0; height: 100vh;
+  }
+  aside.side .brand { font-weight: 700; font-size: 16px; padding: 0 10px 14px; }
+  a.navitem {
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    padding: 8px 10px; border-radius: 8px; color: var(--ink-2); text-decoration: none; font-size: 13.5px;
+  }
+  a.navitem:hover { background: rgba(128,128,128,.10); }
+  a.navitem.active { background: rgba(128,128,128,.16); color: var(--ink-1); font-weight: 600; }
+  a.navitem .badge { background: var(--bad); color: #fff; border-radius: 999px; font-size: 10.5px; padding: 1px 6px; font-weight: 600; }
+  a.navitem .count { color: var(--ink-3); font-size: 11.5px; }
+  aside.side .syncblock { margin-top: auto; border-top: 1px solid var(--grid); padding: 12px 10px 0; }
+  main.content { padding: 24px 24px 110px; max-width: 1060px; width: 100%; }
+
+  .topbar {
+    position: sticky; top: 0; z-index: 40; background: var(--surface-1);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 4px; padding: 0 20px; height: 48px;
+  }
+  .topbar .brand { font-weight: 700; margin-right: 14px; }
+  a.tab {
+    padding: 14px 11px; font-size: 13.5px; color: var(--ink-2); text-decoration: none;
+    border-bottom: 2px solid transparent; display: inline-flex; gap: 6px; align-items: center;
+  }
+  a.tab:hover { color: var(--ink-1); }
+  a.tab.active { color: var(--ink-1); font-weight: 600; border-bottom-color: var(--ink-1); }
+  a.tab .badge { background: var(--bad); color: #fff; border-radius: 999px; font-size: 10.5px; padding: 1px 6px; font-weight: 600; }
+  .topbar .spacer { flex: 1; }
+  .layout-top main.content { margin: 0 auto; }
+  .layout-hub main.content { margin: 0 auto; max-width: 1020px; }
+  .crumbbar { font-size: 13px; margin-bottom: 14px; }
+  .crumbbar a { color: var(--ink-2); text-decoration: none; }
+  .crumbbar a:hover { color: var(--ink-1); }
+  .hublinks { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; margin-top: 26px; font-size: 13px; }
+  .hublinks a { color: var(--ink-3); text-decoration: none; }
+  .hublinks a:hover { color: var(--ink-1); }
+  .hublinks a .badge { background: var(--bad); color: #fff; border-radius: 999px; font-size: 10.5px; padding: 1px 6px; font-weight: 600; margin-left: 4px; }
+
+  /* transactions */
+  tr.txrow:hover td { background: rgba(128,128,128,.06); }
+  td .cp { font-weight: 500; }
+  td .purpose { color: var(--ink-3); font-size: 12px; max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 12px;
+    border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; cursor: pointer; background: transparent; color: var(--ink-2);
+  }
+  .chip:hover { border-color: var(--axis); color: var(--ink-1); }
+  .chip i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+  .chip.acct { cursor: default; }
+  .tag { font-size: 11px; color: var(--ink-3); border: 1px solid var(--grid); border-radius: 4px; padding: 0 5px; }
+  .amt.neg { color: var(--ink-1); } .amt.pos { color: var(--good); font-weight: 600; }
+  tr.splitrow td { border-bottom: none; padding-top: 0; padding-bottom: 2px; color: var(--ink-2); font-size: 12.5px; }
+  tr.splitrow.last td { border-bottom: 1px solid var(--grid); padding-bottom: 8px; }
+  .datehead td { color: var(--ink-3); font-size: 12px; padding-top: 16px; border-bottom: 1px solid var(--grid); text-align: left; }
+
+  /* categories master-detail (locked C-style) */
+  .split { display: grid; grid-template-columns: 260px 1fr; gap: 16px; }
+  .cat-list { display: flex; flex-direction: column; gap: 2px; }
+  .cat-item {
+    all: unset; cursor: pointer; display: grid;
+    grid-template-columns: 12px 1fr auto; gap: 8px; align-items: center;
+    padding: 8px 10px; border-radius: 8px; font-size: 13px;
+  }
+  .cat-item:hover { background: rgba(128,128,128,.12); }
+  .cat-item.active { background: rgba(128,128,128,.18); font-weight: 600; }
+  .cat-item i { width: 10px; height: 10px; border-radius: 3px; }
+  .cat-item .amt { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .crumb { font-size: 12px; color: var(--ink-3); margin-bottom: 10px; }
+
+  /* budget */
+  .budgetrow { display: grid; grid-template-columns: 150px 1fr 200px; gap: 14px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--grid); }
+  .budgetrow:last-child { border-bottom: none; }
+  .bname { font-weight: 500; display: flex; gap: 7px; align-items: center; font-size: 13.5px; }
+  .bname i { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  .bbar { height: 10px; border-radius: 5px; background: var(--grid); position: relative; overflow: hidden; }
+  .bbar .fill { position: absolute; inset: 0 auto 0 0; border-radius: 5px; }
+  .bbar .mark80 { position: absolute; top: -2px; bottom: -2px; width: 1px; background: var(--axis); left: 80%; }
+  .bstate { font-size: 12px; color: var(--ink-3); text-align: right; }
+  .bstate .warn { color: var(--warn); font-weight: 600; }
+  .bstate .bad { color: var(--bad); font-weight: 600; }
+
+  /* contracts */
+  .contract { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--grid); font-size: 13.5px; }
+  .contract:last-child { border-bottom: none; }
+  .contract .meta { color: var(--ink-3); font-size: 12px; }
+  .contract .norm { color: var(--ink-2); font-size: 12.5px; text-align: right; }
+
+  /* accounts / sync */
+  .acctgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+  .acct .top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .acct .bal { font-size: 22px; font-weight: 600; margin: 4px 0 2px; }
+  .acct .foot { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
+  .errbadge { color: var(--bad); font-size: 12px; font-weight: 600; }
+  .okdot { color: var(--good); }
+  .dropzone {
+    border: 1.5px dashed var(--axis); border-radius: 10px; padding: 18px; text-align: center;
+    color: var(--ink-3); font-size: 13px; margin-top: 16px;
+  }
+  .runline { font-size: 12.5px; color: var(--ink-2); display: flex; gap: 14px; flex-wrap: wrap; }
+
+  /* TAN modal */
+  #overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 70; display: none; align-items: center; justify-content: center; }
+  #overlay .dialog { background: var(--surface-1); border-radius: 12px; padding: 22px; width: 400px; max-width: 92vw; box-shadow: 0 12px 40px rgba(0,0,0,.35); }
+  #overlay .challenge { background: var(--page); border: 1px solid var(--grid); border-radius: 8px; padding: 10px 12px; font-size: 13px; margin: 12px 0; }
+  #overlay input[type=text] { width: 100%; font-size: 16px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--page); color: var(--ink-1); letter-spacing: 2px; }
+  #overlay .modes { display: flex; gap: 6px; margin-bottom: 4px; }
+  #overlay .modes button { all: unset; cursor: pointer; font-size: 12.5px; padding: 4px 10px; border-radius: 999px; color: var(--ink-2); border: 1px solid var(--border); }
+  #overlay .modes button.on { background: var(--ink-1); color: var(--page); border-color: transparent; }
+  #overlay .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+  .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--axis); border-top-color: var(--ink-1); border-radius: 50%; animation: sp 0.8s linear infinite; vertical-align: -2px; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div id="shell"></div>
+<div id="tooltip"></div>
+<div id="overlay"></div>
+<div id="switcher">
+  <button id="prev" aria-label="Vorherige Variante">←</button>
+  <span class="name" id="vname"></span>
+  <button id="next" aria-label="Nächste Variante">→</button>
+</div>
+
+<script>
+'use strict';
+/* ================= dummy data (deterministic) ================= */
+const MONTHS = ['Aug 25','Sep 25','Okt 25','Nov 25','Dez 25','Jan 26','Feb 26','Mär 26','Apr 26','Mai 26','Jun 26','Jul 26'];
+const CUR = MONTHS.length - 1;
+
+const CATS = [
+  { id:'wohnen',       name:'Wohnen',          base:1450, amp:60,
+    subs:[['Miete',0.80],['Nebenkosten',0.12],['Strom',0.08]] },
+  { id:'lebensmittel', name:'Lebensmittel',    base:520,  amp:70,
+    subs:[['Supermarkt',0.78],['Bäcker',0.12],['Drogerie',0.10]] },
+  { id:'mobilitaet',   name:'Mobilität',       base:210,  amp:50,
+    subs:[['Deutschlandticket',0.28],['Tanken',0.45],['Auto & Werkstatt',0.27]] },
+  { id:'vertraege',    name:'Verträge & Abos', base:185,  amp:10,
+    subs:[['Versicherungen',0.36],['Internet',0.24],['Handy',0.18],['Streaming',0.22]] },
+  { id:'freizeit',     name:'Freizeit',        base:260,  amp:120,
+    subs:[['Restaurants',0.55],['Sport',0.15],['Kultur & Sonstiges',0.30]] },
+  { id:'gesundheit',   name:'Gesundheit',      base:90,   amp:40,
+    subs:[['Apotheke',0.5],['Arzt & Zuzahlung',0.5]] },
+  { id:'sonstiges',    name:'Sonstiges',       base:140,  amp:80,
+    subs:[['Geschenke',0.4],['Bargeld',0.35],['Diverses',0.25]] },
+];
+CATS.forEach((c, ci) => {
+  c.color = `var(--c-${c.id})`;
+  c.monthly = MONTHS.map((_, m) => Math.round(c.base + c.amp * Math.sin(m * 1.7 + ci * 2.3)));
+});
+const catById = id => CATS.find(c => c.id === id);
+
+const INCOME = [
+  { name:'Gehalt',             monthly: MONTHS.map(()=>4200) },
+  { name:'Sonstige Einnahmen', monthly: MONTHS.map((_,m)=>Math.round(120 + 110*Math.sin(m*2.4))) },
+];
+const SAVINGS = [['Depot-Sparplan',600],['Tagesgeld',400]];
+const incomeAt   = m => INCOME.reduce((s,i)=>s+i.monthly[m],0);
+const expensesAt = m => CATS.reduce((s,c)=>s+c.monthly[m],0);
+const savingsAt  = () => SAVINGS.reduce((s,[,v])=>s+v,0);
+const bufferAt   = m => incomeAt(m) - expensesAt(m) - savingsAt();
+
+const ACCOUNTS = [
+  { id:'giro',   name:'Consorsbank Giro',        type:'Girokonto',        src:'FinTS',       balance: 2845.12, synced:'vor 2 Std.' },
+  { id:'tages',  name:'Consorsbank Tagesgeld',   type:'Tagesgeld',        src:'FinTS',       balance: 12400.00, synced:'vor 2 Std.' },
+  { id:'depot',  name:'Scalable Depot',          type:'Depot',            src:'scalable-cli', balance: 47372.80, synced:'gestern' },
+  { id:'verr',   name:'Scalable Verrechnung',    type:'Verrechnungskonto', src:'scalable-cli', balance: 189.30, synced:'gestern' },
+  { id:'paypal', name:'PayPal',                  type:'Zahlungskonto',    src:'CSV-Import',  balance: 15.20, synced:'Import vor 12 Tagen', stale:true },
+];
+const acctById = id => ACCOUNTS.find(a => a.id === id);
+
+/* transactions, current month — hand-written, includes split / transfer / income cases */
+const TX = [
+  { d:'21. Jul', acct:'giro',   cp:'REWE Markt', purpose:'REWE SAGT DANKE 4402', amt:-84.30, cat:'lebensmittel',
+    splits:[['lebensmittel','Supermarkt', -64.30, 'auto'], ['gesundheit','Drogerie/Apotheke', -20.00, 'user']] },
+  { d:'21. Jul', acct:'paypal', cp:'Spotify AB', purpose:'PayPal Abbuchung Spotify Premium', amt:-10.99, cat:'vertraege' },
+  { d:'20. Jul', acct:'giro',   cp:'Übertrag Tagesgeld', purpose:'Dauerauftrag Sparen', amt:-400.00, transfer:'tages' },
+  { d:'20. Jul', acct:'tages',  cp:'Übertrag von Giro', purpose:'Dauerauftrag Sparen', amt: 400.00, transfer:'giro' },
+  { d:'19. Jul', acct:'giro',   cp:'Aral Tankstelle', purpose:'ARAL STATION 0815 KARTENZAHLUNG', amt:-62.40, cat:'mobilitaet' },
+  { d:'18. Jul', acct:'giro',   cp:'Trattoria Da Marco', purpose:'KARTENZAHLUNG 17.07. 20:41', amt:-54.80, cat:'freizeit' },
+  { d:'17. Jul', acct:'giro',   cp:'Stadtwerke', purpose:'ABSCHLAG STROM JULI', amt:-98.00, cat:'wohnen' },
+  { d:'15. Jul', acct:'giro',   cp:'Deutschlandticket', purpose:'ABO 07/2026', amt:-58.00, cat:'mobilitaet' },
+  { d:'14. Jul', acct:'paypal', cp:'Kleinanzeigen-Verkauf', purpose:'Zahlung erhalten M. Meier', amt: 65.00, cat:'sonstiges' },
+  { d:'12. Jul', acct:'giro',   cp:'dm Drogeriemarkt', purpose:'DM FIL 2231 SAGT DANKE', amt:-23.85, cat:'lebensmittel' },
+  { d:'10. Jul', acct:'giro',   cp:'Fitnessstudio FitX', purpose:'BEITRAG 07/2026', amt:-35.00, cat:'freizeit' },
+  { d:'05. Jul', acct:'giro',   cp:'Miete Musterstr. 12', purpose:'DAUERAUFTRAG MIETE', amt:-1200.00, cat:'wohnen' },
+  { d:'03. Jul', acct:'verr',   cp:'Sparplan Vanguard All-World', purpose:'WERTPAPIERKAUF IE00BK5BQT80', amt:-600.00, cat:null, invest:true },
+  { d:'01. Jul', acct:'giro',   cp:'Arbeitgeber GmbH', purpose:'GEHALT 07/2026', amt: 4200.00, income:true },
+];
+
+const CONTRACTS_ACTIVE = [
+  { name:'Gehalt Arbeitgeber GmbH', cat:null, income:true, amount:'4.200 €', interval:'monatlich', norm:'+4.200 €/Monat', next:'01. Aug' },
+  { name:'Miete Musterstr. 12', cat:'wohnen', amount:'1.200 €', interval:'monatlich', norm:'1.200 €/Monat', next:'05. Aug' },
+  { name:'Stadtwerke Strom', cat:'wohnen', amount:'98 €', interval:'monatlich', norm:'98 €/Monat', next:'17. Aug' },
+  { name:'Deutschlandticket', cat:'mobilitaet', amount:'58 €', interval:'monatlich', norm:'58 €/Monat', next:'15. Aug' },
+  { name:'Haftpflicht', cat:'vertraege', amount:'68 €', interval:'jährlich', norm:'5,67 €/Monat', next:'02. Jan 27' },
+  { name:'Internet 100 Mbit', cat:'vertraege', amount:'45 €', interval:'monatlich', norm:'45 €/Monat', next:'28. Jul' },
+  { name:'Mobilfunk', cat:'vertraege', amount:'19,99 €', interval:'monatlich', norm:'19,99 €/Monat', next:'26. Jul' },
+  { name:'Netflix + Spotify', cat:'vertraege', amount:'28 €', interval:'monatlich', norm:'28 €/Monat', next:'21. Aug' },
+  { name:'Fitnessstudio FitX', cat:'freizeit', amount:'35 €', interval:'monatlich', norm:'35 €/Monat', next:'10. Aug' },
+];
+let CONTRACTS_NEW = [
+  { name:'Disney+', cat:'vertraege', amount:'8,99 €', interval:'monatlich', norm:'8,99 €/Monat', hint:'3 Zahlungen erkannt, zuletzt 18. Jul' },
+  { name:'ADAC Mitgliedschaft', cat:'mobilitaet', amount:'94 €', interval:'jährlich', norm:'7,83 €/Monat', hint:'2 Zahlungen erkannt, zuletzt 12. Mai' },
+];
+
+const BUDGETS = [ /* [catId, target] — subset of categories, per decision */
+  ['wohnen', 1500], ['lebensmittel', 550], ['mobilitaet', 220], ['freizeit', 250], ['gesundheit', 100],
+];
+const spentOf = id => catById(id).monthly[CUR];
+
+const NW = { /* net worth series: cash + depot, 12 months */
+  depot: MONTHS.map((_,m)=>Math.round(38500 + m*820 + 1500*Math.sin(m*1.1))),
+  cash:  MONTHS.map((_,m)=>Math.round(13400 + m*180 + 400*Math.sin(m*0.7))),
+};
+NW.total = MONTHS.map((_,m)=>NW.depot[m]+NW.cash[m]);
+const POSITIONS = [
+  { name:'Vanguard FTSE All-World', isin:'IE00BK5BQT80', qty:182, price:118.40, prev:117.10 },
+  { name:'iShares Core MSCI EM IMI', isin:'IE00BKM4GZ66', qty:310, price:32.10, prev:32.45 },
+  { name:'iShares Global Clean Energy', isin:'IE00B1XNHC34', qty:420, price:9.85, prev:9.71 },
+  { name:'MSCI World Small Cap', isin:'IE00BF4RFH31', qty:180, price:65.20, prev:65.02 },
+];
+
+const eur = v => v.toLocaleString('de-DE', {maximumFractionDigits: 0}) + ' €';
+const eur2 = v => v.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €';
+const pct = v => (v*100).toFixed(0).replace('.',',') + ' %';
+
+/* ================= helpers ================= */
+const S = 'http://www.w3.org/2000/svg';
+function el(name, attrs = {}, parent) {
+  const n = document.createElementNS(S, name);
+  for (const [k,v] of Object.entries(attrs)) n.setAttribute(k, v);
+  if (parent) parent.appendChild(n);
+  return n;
+}
+function div(cls, html, parent, tag='div') {
+  const d = document.createElement(tag);
+  if (cls) d.className = cls;
+  if (html !== undefined) d.innerHTML = html;
+  if (parent) parent.appendChild(d);
+  return d;
+}
+const tooltip = document.getElementById('tooltip');
+function hover(node, html) {
+  node.addEventListener('mousemove', e => {
+    tooltip.style.display = 'block';
+    tooltip.innerHTML = html();
+    const x = Math.min(e.clientX + 14, innerWidth - tooltip.offsetWidth - 8);
+    tooltip.style.left = x + 'px';
+    tooltip.style.top  = (e.clientY + 14) + 'px';
+  });
+  node.addEventListener('mouseleave', () => tooltip.style.display = 'none');
+}
+function legend(items, parent) {
+  const l = div('legend', '', parent);
+  items.forEach(([name,color]) => {
+    const s = document.createElement('span');
+    s.innerHTML = `<i style="background:${color}"></i>${name}`;
+    l.appendChild(s);
+  });
+}
+const chip = (cat, extra='') => cat
+  ? `<button class="chip" data-cat="${cat.id}" title="Kategorie ändern"><i style="background:${cat.color}"></i>${cat.name}${extra}</button>`
+  : `<span class="chip acct">${extra || '—'}</span>`;
+
+/* ================= charts (from locked ticket-04 design) ================= */
+function sankey(parent, m, { width = 900, height = 420, onCat = null } = {}) {
+  const svg = el('svg', { viewBox:`0 0 ${width} ${height}`, width:'100%' }, parent);
+  const NWD = 12, GAP = 10, PAD_T = 24, PAD_B = 8, labelW = 205;
+  const colX = [labelW, width/2 - NWD/2, width - labelW - NWD];
+  const mid = CATS.map(c => ({ name:c.name, color:c.color, value:c.monthly[m], cat:c }))
+    .concat([{ name:'Sparen', color:'var(--c-sparen)', value:savingsAt() },
+             { name:'Puffer (Giro)', color:'var(--c-puffer)', value:bufferAt(m) }]);
+  const left  = INCOME.map(i => ({ name:i.name, color:'var(--axis)', value:i.monthly[m] }));
+  const right = SAVINGS.map(([name,v]) => ({ name, color:'var(--c-sparen)', value:v }));
+  const colSum = col => col.reduce((s,n)=>s+n.value,0);
+  const avail = height - PAD_T - PAD_B;
+  const pxPerEur = (avail - GAP * (mid.length - 1)) / Math.max(...[left,mid,right].map(colSum));
+  function place(col, x) {
+    const total = col.reduce((s,n)=>s + n.value*pxPerEur, 0) + GAP*(col.length-1);
+    let y = PAD_T + (avail - total)/2;
+    col.forEach(n => { n.x=x; n.y=y; n.h=Math.max(2,n.value*pxPerEur); n.out=n.y; n.in=n.y; y += n.h + GAP; });
+  }
+  place(left, colX[0]); place(mid, colX[1]); place(right, colX[2]);
+  const linksG = el('g', {}, svg);
+  function link(a, b, value, color) {
+    const h = value * pxPerEur;
+    const x0 = a.x + NWD, x1 = b.x, mx = (x0+x1)/2, sy = a.out, ty = b.in;
+    a.out += h; b.in += h;
+    const p = el('path', { d:`M${x0},${sy} C${mx},${sy} ${mx},${ty} ${x1},${ty} L${x1},${ty+h} C${mx},${ty+h} ${mx},${sy+h} ${x0},${sy+h} Z`, fill:color, 'fill-opacity':0.30 }, linksG);
+    p.addEventListener('mouseenter', () => p.setAttribute('fill-opacity', 0.55));
+    p.addEventListener('mouseleave', () => p.setAttribute('fill-opacity', 0.30));
+    hover(p, () => `<b>${a.name} → ${b.name}</b>${eur(Math.round(value))} · ${MONTHS[m]}`);
+  }
+  const incTotal = colSum(left);
+  mid.forEach(node => left.forEach(src => link(src, node, node.value * src.value/incTotal, node.color)));
+  const sparenNode = mid.find(n => n.name === 'Sparen');
+  right.forEach(t => link(sparenNode, t, t.value, 'var(--c-sparen)'));
+  [left, mid, right].forEach((col, ci) => {
+    col.forEach(n => {
+      const r = el('rect', { x:n.x, y:n.y, width:NWD, height:n.h, rx:4, fill:n.color }, svg);
+      if (onCat && n.cat) { r.style.cursor='pointer'; r.addEventListener('click', ()=>onCat(n.cat)); }
+      const t = el('text', { y: n.y + Math.max(n.h/2, 6) + 4 }, svg);
+      const anchorLeft = ci === 0;
+      t.setAttribute('x', anchorLeft ? n.x - 8 : n.x + NWD + 8);
+      t.setAttribute('text-anchor', anchorLeft ? 'end' : 'start');
+      t.innerHTML = `<tspan class="lbl-strong">${n.name}</tspan><tspan class="lbl-muted" dx="6">${eur(n.value)}</tspan>`;
+      if (onCat && n.cat) { t.style.cursor='pointer'; t.addEventListener('click', ()=>onCat(n.cat)); }
+    });
+  });
+}
+function roundedTop(x, y, w, h, r) {
+  if (h <= 0) return 'M0,0';
+  r = Math.min(r, h, w/2);
+  return `M${x},${y+h} L${x},${y+r} Q${x},${y} ${x+r},${y} L${x+w-r},${y} Q${x+w},${y} ${x+w},${y+r} L${x+w},${y+h} Z`;
+}
+function trendChart(parent, { width = 900, height = 260, only = null, sel = -1, onSelect = null } = {}) {
+  const svg = el('svg', { viewBox:`0 0 ${width} ${height}`, width:'100%' }, parent);
+  const PAD_L = 52, PAD_R = 12, PAD_T = 14, PAD_B = 24;
+  const w = width - PAD_L - PAD_R, h = height - PAD_T - PAD_B;
+  const cats = only ? [only] : CATS;
+  const maxV = only ? Math.max(...only.monthly) * 1.15 : Math.max(...MONTHS.map((_,m)=>incomeAt(m))) * 1.08;
+  const y = v => PAD_T + h - v/maxV*h;
+  const band = w / MONTHS.length, barW = Math.min(24, band * 0.55);
+  const step = maxV > 3000 ? 1000 : maxV > 800 ? 250 : 100;
+  for (let v = 0; v <= maxV; v += step) {
+    el('line', { x1:PAD_L, x2:width-PAD_R, y1:y(v), y2:y(v), stroke: v===0?'var(--axis)':'var(--grid)', 'stroke-width':1 }, svg);
+    el('text', { x:PAD_L-8, y:y(v)+4, 'text-anchor':'end', class:'tick' }, svg).textContent = v.toLocaleString('de-DE');
+  }
+  MONTHS.forEach((mon, m) => {
+    const cx = PAD_L + band*m + band/2;
+    let yTop = y(0);
+    const g = el('g', {}, svg);
+    if (onSelect) { g.style.cursor='pointer'; g.addEventListener('click', ()=>onSelect(m)); }
+    if (sel >= 0 && m === sel)
+      el('rect', { x:cx-band/2+2, y:PAD_T, width:band-4, height:h, fill:'var(--grid)', 'fill-opacity':0.5, rx:6 }, g);
+    cats.forEach((c, ci) => {
+      const v = c.monthly[m];
+      const segH = Math.max(0, v/maxV*h - 2);
+      const yy = yTop - v/maxV*h;
+      const seg = el('path', { d: roundedTop(cx-barW/2, yy, barW, segH, ci===cats.length-1?4:0), fill:c.color }, g);
+      hover(seg, () => `<b>${c.name} · ${mon}</b>${eur(v)} von ${eur(expensesAt(m))} Ausgaben`);
+      yTop = yy;
+    });
+    el('text', { x:cx, y:height-8, 'text-anchor':'middle', class:'tick' }, svg).textContent = mon.split(' ')[0];
+  });
+  if (!only) {
+    const pts = MONTHS.map((_,m)=>[PAD_L + band*m + band/2, y(incomeAt(m))]);
+    el('path', { d:'M'+pts.map(p=>p.join(',')).join(' L'), fill:'none', stroke:'var(--ink-2)', 'stroke-width':2, 'stroke-linejoin':'round', 'stroke-linecap':'round' }, svg);
+    const [ex,ey] = pts[pts.length-1];
+    el('circle', { cx:ex, cy:ey, r:6, fill:'var(--surface-1)' }, svg);
+    const dot = el('circle', { cx:ex, cy:ey, r:4, fill:'var(--ink-2)' }, svg);
+    hover(dot, () => `<b>Einnahmen · ${MONTHS[CUR]}</b>${eur(incomeAt(CUR))}`);
+    el('text', { x:ex-6, y:ey-10, 'text-anchor':'end', class:'lbl-strong' }, svg).textContent = 'Einnahmen ' + eur(incomeAt(CUR));
+  }
+}
+function sparkline(parent, values, color, { width=110, height=30 } = {}) {
+  const svg = el('svg', { viewBox:`0 0 ${width} ${height}`, width, height }, parent);
+  const maxV = Math.max(...values), minV = Math.min(...values);
+  const y = v => 4 + (height-8) * (1 - (v-minV)/((maxV-minV)||1));
+  const x = i => 4 + (width-8) * i/(values.length-1);
+  el('path', { d:'M'+values.map((v,i)=>`${x(i)},${y(v)}`).join(' L'), fill:'none', stroke:'var(--axis)', 'stroke-width':2, 'stroke-linejoin':'round' }, svg);
+  el('circle', { cx:x(values.length-1), cy:y(values[values.length-1]), r:3.5, fill:color }, svg);
+}
+function areaChart(parent, series, { width=940, height=260 } = {}) {
+  /* net worth: stacked cash + depot areas, total line + end label */
+  const svg = el('svg', { viewBox:`0 0 ${width} ${height}`, width:'100%' }, parent);
+  const PAD_L = 62, PAD_R = 12, PAD_T = 16, PAD_B = 24;
+  const w = width - PAD_L - PAD_R, h = height - PAD_T - PAD_B;
+  const maxV = Math.max(...NW.total) * 1.06;
+  const y = v => PAD_T + h - v/maxV*h;
+  const x = m => PAD_L + w * m/(MONTHS.length-1);
+  const step = 20000;
+  for (let v = 0; v <= maxV; v += step) {
+    el('line', { x1:PAD_L, x2:width-PAD_R, y1:y(v), y2:y(v), stroke: v===0?'var(--axis)':'var(--grid)' }, svg);
+    el('text', { x:PAD_L-8, y:y(v)+4, 'text-anchor':'end', class:'tick' }, svg).textContent = (v/1000)+'k';
+  }
+  const cashTop = MONTHS.map((_,m)=>NW.cash[m]);
+  const totTop  = NW.total;
+  function area(top, bottom, color, op) {
+    const d = 'M' + MONTHS.map((_,m)=>`${x(m)},${y(top[m])}`).join(' L')
+      + ' L' + MONTHS.map((_,m)=>`${x(MONTHS.length-1-m)},${y(bottom ? bottom[MONTHS.length-1-m] : 0)}`).join(' L') + ' Z';
+    el('path', { d, fill: color, 'fill-opacity': op }, svg);
+  }
+  area(cashTop, null, 'var(--c-puffer)', 0.55);
+  area(totTop, cashTop, 'var(--c-sparen)', 0.25);
+  el('path', { d:'M'+MONTHS.map((_,m)=>`${x(m)},${y(totTop[m])}`).join(' L'), fill:'none', stroke:'var(--good)', 'stroke-width':2, 'stroke-linejoin':'round' }, svg);
+  MONTHS.forEach((mon,m) => {
+    if (m % 2 === 0) el('text', { x:x(m), y:height-6, 'text-anchor':'middle', class:'tick' }, svg).textContent = mon.split(' ')[0];
+    const hit = el('rect', { x:x(m)-w/(MONTHS.length-1)/2, y:PAD_T, width:w/(MONTHS.length-1), height:h, fill:'transparent' }, svg);
+    hover(hit, () => `<b>Nettovermögen · ${mon}</b>${eur(NW.total[m])} gesamt<br>Depot ${eur(NW.depot[m])} · Cash ${eur(NW.cash[m])}`);
+  });
+  const [ex,ey] = [x(CUR), y(totTop[CUR])];
+  el('circle', { cx:ex, cy:ey, r:6, fill:'var(--surface-1)' }, svg);
+  el('circle', { cx:ex, cy:ey, r:4, fill:'var(--good)' }, svg);
+  el('text', { x:ex-8, y:ey-12, 'text-anchor':'end', class:'lbl-strong' }, svg).textContent = eur(NW.total[CUR]);
+  legend([['Depot (Marktwert)','var(--c-sparen)'],['Cash (Konten)','var(--c-puffer)'],['Gesamt (Linie)','var(--good)']], parent);
+}
+
+/* ================= sync run + TAN modal (shared surface) ================= */
+const syncState = { running:false, done:{}, error:{} };
+let rerender = () => {};
+const overlay = document.getElementById('overlay');
+function tanModal(onDone, onCancel) {
+  overlay.style.display = 'flex';
+  let mode = 'app';
+  function paint() {
+    overlay.innerHTML = `<div class="dialog">
+      <h2>TAN erforderlich — Consorsbank</h2>
+      <div class="sub">Der Sync für Giro + Tagesgeld wartet auf Freigabe. Andere Konten laufen weiter.</div>
+      <div class="challenge">„Bitte bestätigen Sie den Kontozugriff für BLZ 760&nbsp;300&nbsp;80 in Ihrer SecurePlus App oder geben Sie die TAN ein.“</div>
+      <div class="modes">
+        <button id="m-app" class="${mode==='app'?'on':''}">SecurePlus App</button>
+        <button id="m-code" class="${mode==='code'?'on':''}">TAN eingeben</button>
+      </div>
+      <div id="modebody"></div>
+      <div class="actions">
+        <button class="btn quiet" id="tan-cancel">Abbrechen</button>
+        <button class="btn primary" id="tan-ok">${mode==='app' ? 'Fertig — weiter' : 'Bestätigen'}</button>
+      </div>
+    </div>`;
+    const body = overlay.querySelector('#modebody');
+    body.innerHTML = mode === 'app'
+      ? `<div class="sub" style="padding:6px 0"><span class="spin"></span>&nbsp; Warte auf Bestätigung in der SecurePlus App …</div>`
+      : `<input type="text" placeholder="TAN" inputmode="numeric" autocomplete="one-time-code">`;
+    overlay.querySelector('#m-app').onclick = () => { mode='app'; paint(); };
+    overlay.querySelector('#m-code').onclick = () => { mode='code'; paint(); };
+    overlay.querySelector('#tan-ok').onclick = () => { overlay.style.display='none'; onDone(); };
+    overlay.querySelector('#tan-cancel').onclick = () => { overlay.style.display='none'; onCancel(); };
+  }
+  paint();
+}
+function startSync(onlyAcct = null) {
+  if (syncState.running) return;
+  syncState.running = true; syncState.done = {}; syncState.error = {};
+  rerender();
+  const scalable = ['depot','verr'].filter(id => !onlyAcct || onlyAcct === id);
+  const fints    = ['giro','tages'].filter(id => !onlyAcct || onlyAcct === id);
+  setTimeout(() => { scalable.forEach(id => syncState.done[id] = true); rerender(); }, 900);
+  if (fints.length) {
+    setTimeout(() => tanModal(
+      () => { fints.forEach(id => { syncState.done[id]=true; acctById(id).synced='gerade eben'; }); finish(); },
+      () => { fints.forEach(id => syncState.error[id] = 'HKKAZ: Auftrag abgebrochen — TAN-Freigabe nicht erteilt (9800)'); finish(); }
+    ), 700);
+  } else setTimeout(finish, 1000);
+  function finish() {
+    syncState.running = false;
+    ['depot','verr'].forEach(id => { if (syncState.done[id]) acctById(id).synced='gerade eben'; });
+    rerender();
+  }
+}
+function syncControls(parent, { compact=false } = {}) {
+  const wrap = div('', '', parent);
+  const btn = div('', '', wrap, 'button');
+  btn.className = 'btn' + (compact ? '' : ' primary');
+  btn.textContent = syncState.running ? 'Synchronisiere …' : 'Synchronisieren';
+  btn.disabled = syncState.running;
+  btn.onclick = () => startSync();
+  if (!compact) {
+    const line = div('sub', '', wrap);
+    line.style.marginTop = '6px';
+    const errs = Object.keys(syncState.error).length;
+    line.textContent = syncState.running ? 'Läuft — Konten einzeln, TAN kann erscheinen'
+      : errs ? `${errs} Konto/Konten fehlgeschlagen — Details unter Konten`
+      : 'Zuletzt: Konten einzeln, siehe Zeitstempel';
+  }
+  return wrap;
+}
+
+/* ================= screens (shared across variants) ================= */
+let txCatEdit = null; // tx index currently in category-edit mode
+
+const SCREENS = [
+  { id:'uebersicht',    title:'Übersicht' },
+  { id:'transaktionen', title:'Transaktionen' },
+  { id:'kategorien',    title:'Kategorien' },
+  { id:'budget',        title:'Budget' },
+  { id:'vertraege',     title:'Verträge', badge: () => CONTRACTS_NEW.length || null },
+  { id:'vermoegen',     title:'Vermögen' },
+  { id:'konten',        title:'Konten & Sync', short:'Konten' },
+];
+
+function renderUebersicht(root, nav) {
+  let month = CUR;
+  function paint() {
+    root.innerHTML = '';
+    const header = div('', '', root, 'header'); header.className='page';
+    header.innerHTML = `<div><h1>Übersicht · ${MONTHS[month]}</h1>
+      <div class="sub">Einnahmen → Kategorien → Sparziele</div></div>`;
+    const sel = document.createElement('select');
+    MONTHS.forEach((mn,i)=>{ const o=document.createElement('option'); o.value=i; o.textContent=mn; if(i===month)o.selected=true; sel.appendChild(o); });
+    sel.addEventListener('change', ()=>{ month=+sel.value; paint(); });
+    header.appendChild(sel);
+
+    const inc = incomeAt(month), exp = expensesAt(month), sav = savingsAt();
+    const quote = sav / inc, prev = month > 0 ? month - 1 : null;
+    const tiles = div('tiles', '', root);
+    const tileData = [
+      ['Einnahmen', eur(inc), null, MONTHS.map((_,m)=>incomeAt(m)), 'var(--c-wohnen)', 'transaktionen'],
+      ['Ausgaben', eur(exp), prev===null?null:`${exp-expensesAt(prev)>=0?'+':''}${eur(exp - expensesAt(prev))} ggü. ${MONTHS[prev]}`, MONTHS.map((_,m)=>expensesAt(m)), 'var(--c-lebensmittel)', 'transaktionen'],
+      ['Sparquote', pct(quote), prev===null?null:`${quote>=savingsAt()/incomeAt(prev)?'↑':'↓'} ggü. ${MONTHS[prev]}`, MONTHS.map((_,m)=>savingsAt()/incomeAt(m)*100), 'var(--c-sparen)', 'budget'],
+      ['Puffer übrig', eur(bufferAt(month)), null, MONTHS.map((_,m)=>bufferAt(m)), 'var(--c-vertraege)', 'vermoegen'],
+    ];
+    tileData.forEach(([lbl,val,delta,trend,color,target],i) => {
+      const a = div('tilelink', '', tiles, 'a'); a.href = '#/'+target;
+      const t = div('card tile', `<div class="lbl">${lbl}</div><div class="val">${val}</div>`, a);
+      if (delta) div('delta' + (i===2 && String(delta).startsWith('↑') ? ' up' : ''), delta, t);
+      sparkline(t, trend, color);
+    });
+
+    const flow = div('card', '', root); flow.style.marginTop = '16px';
+    sankey(flow, month, { width: 980, height: 440, onCat: c => nav('kategorien', c.id) });
+    div('sub', 'Kategorie anklicken → Kategorien-Detail', flow);
+
+    const trendCard = div('card', '', root); trendCard.style.marginTop = '16px';
+    trendCard.innerHTML = `<h2>Monatsverlauf</h2><div class="sub">Ausgaben gestapelt, Einnahmen als Linie · Monat anklicken, um Kacheln und Fluss zu wechseln</div>`;
+    trendChart(trendCard, { width: 980, height: 250, sel: month, onSelect: m => { month = m; paint(); } });
+    legend(CATS.map(c=>[c.name,c.color]).concat([['Einnahmen (Linie)','var(--ink-2)']]), trendCard);
+    const det = document.createElement('details');
+    det.innerHTML = '<summary>Als Tabelle anzeigen</summary>';
+    const t = document.createElement('table');
+    t.innerHTML = '<tr><th class="l">Kategorie</th>' + MONTHS.map(m=>`<th>${m.split(' ')[0]}</th>`).join('') + '</tr>'
+      + CATS.map(c => `<tr><td class="l">${c.name}</td>` + c.monthly.map(v=>`<td class="num">${eur(v)}</td>`).join('') + '</tr>').join('');
+    det.appendChild(t); trendCard.appendChild(det);
+  }
+  paint();
+}
+
+function renderTransaktionen(root) {
+  let fAcct = 'alle', q = '';
+  function paint() {
+    root.innerHTML = '';
+    const header = div('', '', root, 'header'); header.className='page';
+    header.innerHTML = `<div><h1>Transaktionen</h1><div class="sub">Juli 2026 · nur gebuchte Umsätze · Splits und Umbuchungen inline</div></div>`;
+    const tools = div('row', '', header);
+    const sel = document.createElement('select');
+    [['alle','Alle Konten'], ...ACCOUNTS.map(a=>[a.id,a.name])].forEach(([v,n])=>{
+      const o=document.createElement('option'); o.value=v; o.textContent=n; if(v===fAcct)o.selected=true; sel.appendChild(o); });
+    sel.onchange = () => { fAcct = sel.value; paint(); };
+    tools.appendChild(sel);
+    const search = document.createElement('input');
+    search.type='search'; search.placeholder='Suchen …'; search.value=q;
+    search.oninput = () => { q = search.value.toLowerCase(); paintTable(); };
+    tools.appendChild(search);
+
+    const card = div('card', '', root);
+    card.style.padding = '4px 16px 10px';
+    const table = document.createElement('table');
+    card.appendChild(table);
+    function paintTable() {
+      const rows = TX.filter(t => (fAcct==='alle' || t.acct===fAcct))
+        .filter(t => !q || (t.cp+' '+t.purpose).toLowerCase().includes(q));
+      let html = '<tr><th class="l">Buchung</th><th class="l">Konto</th><th class="l">Kategorie</th><th>Betrag</th></tr>';
+      let lastDate = '';
+      rows.forEach((t, i) => {
+        if (t.d !== lastDate) { html += `<tr class="datehead"><td colspan="4">${t.d}</td></tr>`; lastDate = t.d; }
+        const cat = t.cat ? catById(t.cat) : null;
+        const catCell = t.transfer
+          ? `<span class="chip acct">⇄ Umbuchung</span> <span class="tag" title="Beide Buchungsseiten verknüpft — fließt nicht in Auswertungen ein">nicht in Auswertungen</span>`
+          : t.income ? `<span class="chip acct">Einnahme</span>`
+          : t.invest ? `<span class="chip acct">Wertpapierkauf</span> <span class="tag">Sparen</span>`
+          : t.splits ? `<span class="chip acct">Split (${t.splits.length})</span>`
+          : txCatEdit === i
+            ? `<select data-edit="${i}">${CATS.map(c=>`<option value="${c.id}" ${cat&&c.id===cat.id?'selected':''}>${c.name}</option>`).join('')}</select>`
+            : chip(cat);
+        html += `<tr class="txrow" data-i="${i}">
+          <td class="l"><div class="cp">${t.cp}</div><div class="purpose">${t.purpose}</div></td>
+          <td class="l"><span class="sub">${acctById(t.acct).name.replace('Consorsbank ','').replace('Scalable ','')}</span></td>
+          <td class="l">${catCell}</td>
+          <td class="num amt ${t.amt<0?'neg':'pos'}">${t.amt<0?'−':'+'}${eur2(Math.abs(t.amt))}</td></tr>`;
+        if (t.splits) t.splits.forEach(([cid, name, v, prov], si) => {
+          const sc = catById(cid);
+          html += `<tr class="splitrow ${si===t.splits.length-1?'last':''}"><td class="l" style="padding-left:26px">↳ ${name}</td><td></td>
+            <td class="l">${chip(sc)} <span class="tag" title="${prov==='auto'?'automatisch zugeordnet':'manuell zugeordnet'}">${prov==='auto'?'auto':'manuell'}</span></td>
+            <td class="num amt neg">−${eur2(Math.abs(v))}</td></tr>`;
+        });
+      });
+      table.innerHTML = html;
+      table.querySelectorAll('.chip[data-cat]').forEach(c => c.onclick = e => {
+        txCatEdit = +e.target.closest('tr').dataset.i; paintTable();
+      });
+      table.querySelectorAll('select[data-edit]').forEach(s => {
+        s.onchange = () => { TX[+s.dataset.edit].cat = s.value; txCatEdit = null; paintTable(); };
+        s.onblur = () => { txCatEdit = null; paintTable(); };
+      });
+    }
+    paintTable();
+    div('sub', 'Kategorie-Chip anklicken zum Umkategorisieren · Split-Zeilen zeigen Herkunft (auto/manuell)', root).style.marginTop = '10px';
+  }
+  paint();
+}
+
+function renderKategorien(root, _nav, selId) {
+  let selCat = catById(selId) || CATS[0];
+  function paint() {
+    root.innerHTML = `<header class="page"><div><h1>Kategorien</h1>
+      <div class="sub">Master–Detail · Stand ${MONTHS[CUR]}</div></div></header>`;
+    const split = div('split', '', root);
+    const listCard = div('card', '', split);
+    const list = div('cat-list', '', listCard);
+    [...CATS].sort((a,b)=>b.monthly[CUR]-a.monthly[CUR]).forEach(c => {
+      const b = document.createElement('button');
+      b.className = 'cat-item' + (c.id===selCat.id ? ' active' : '');
+      b.innerHTML = `<i style="background:${c.color}"></i><span>${c.name}</span><span class="amt">${eur(c.monthly[CUR])}</span>`;
+      b.addEventListener('click', ()=>{ selCat=c; paint(); });
+      list.appendChild(b);
+    });
+    div('sub', `Ausgaben gesamt: <b>${eur(expensesAt(CUR))}</b> · Sparen: <b>${eur(savingsAt())}</b>`, listCard).style.marginTop='12px';
+
+    const detail = div('card', '', split);
+    div('crumb', `Alle Kategorien › <b>${selCat.name}</b>`, detail);
+    detail.insertAdjacentHTML('beforeend',
+      `<h2>${selCat.name}</h2>
+       <div class="sub">${eur(selCat.monthly[CUR])} in ${MONTHS[CUR]} · Ø ${eur(Math.round(selCat.monthly.reduce((a,b)=>a+b)/12))} pro Monat</div>`);
+    trendChart(detail, { width: 760, height: 210, only: selCat });
+    const row = div('row', '', detail); row.style.marginTop='14px';
+    const subCard = div('', `<h2>Unterkategorien · ${MONTHS[CUR]}</h2>`, row);
+    subCard.style.flex='1 1 300px';
+    const total = selCat.monthly[CUR];
+    const subSvg = el('svg', { viewBox:'0 0 380 '+(selCat.subs.length*30+4), width:'100%' }, subCard);
+    selCat.subs.forEach(([name,share],i) => {
+      const v = Math.round(total*share), yy = i*30+4;
+      const bw2 = Math.max(3, 180 * share/Math.max(...selCat.subs.map(s=>s[1])));
+      el('text', { x:115, y:yy+14, 'text-anchor':'end', class:'lbl-strong' }, subSvg).textContent = name;
+      const bar = el('rect', { x:125, y:yy, width:bw2, height:20, rx:4, fill:selCat.color }, subSvg);
+      hover(bar, () => `<b>${name}</b>${eur(v)} · ${pct(share)}`);
+      el('text', { x:125+bw2+8, y:yy+14, class:'tick' }, subSvg).textContent = eur(v);
+    });
+    const conCard = div('', `<h2>Verträge in dieser Kategorie</h2>`, row);
+    conCard.style.flex='1 1 260px';
+    const cs = CONTRACTS_ACTIVE.filter(c => c.cat === selCat.id);
+    if (cs.length) cs.forEach(c => div('contract', `<span>${c.name}</span><span class="meta">${c.amount} · ${c.interval}</span><span class="norm">${c.norm}</span>`, conCard));
+    else div('sub', 'Keine wiederkehrenden Zahlungen erkannt.', conCard);
+  }
+  paint();
+}
+
+function renderBudget(root) {
+  root.innerHTML = `<header class="page"><div><h1>Budget · ${MONTHS[CUR]}</h1>
+    <div class="sub">Monatsziele je Kategorie · Kalendermonat, kein Übertrag</div></div>
+    <button class="btn">Ziele bearbeiten</button></header>`;
+  const card = div('card', '', root);
+  const totalTarget = BUDGETS.reduce((s,[,t])=>s+t,0);
+  const totalSpent  = BUDGETS.reduce((s,[id])=>s+spentOf(id),0);
+  div('sub', `${eur(totalSpent)} von ${eur(totalTarget)} budgetiert ausgegeben — Tag 21 von 31`, card).style.marginBottom='8px';
+  BUDGETS.forEach(([id, target]) => {
+    const c = catById(id), spent = spentOf(id);
+    const ratio = spent / target;
+    const row = div('budgetrow', '', card);
+    div('bname', `<i style="background:${c.color}"></i>${c.name}`, row);
+    const bar = div('bbar', `<div class="fill" style="width:${Math.min(100, ratio*100)}%; background:${c.color}; opacity:${ratio>=1?1:.85}"></div><div class="mark80"></div>`, row);
+    hover(bar, () => `<b>${c.name}</b>${eur(spent)} von ${eur(target)} · ${pct(ratio)}`);
+    const state = ratio >= 1
+      ? `<span class="bad">⚠ überzogen +${eur(spent-target)}</span>`
+      : ratio >= 0.8
+      ? `<span class="warn">▲ ${pct(ratio)} erreicht</span>`
+      : `${pct(ratio)}`;
+    div('bstate num', `${eur(spent)} / ${eur(target)}<br>${state}`, row);
+  });
+  const unbudgeted = CATS.filter(c => !BUDGETS.some(([id])=>id===c.id));
+  const uSpent = unbudgeted.reduce((s,c)=>s+c.monthly[CUR],0);
+  const row = div('budgetrow', '', card);
+  div('bname sub', `Ohne Budget (${unbudgeted.map(c=>c.name).join(', ')})`, row);
+  div('', '', row);
+  div('bstate num', `${eur(uSpent)}`, row);
+  div('sub', 'Schwellen: ▲ ab 80 %, ⚠ ab 100 % — keine Tempo-Anpassung, Ziele wirken ab Folgemonat', root).style.marginTop='10px';
+}
+
+function renderVertraege(root) {
+  function paint() {
+    root.innerHTML = `<header class="page"><div><h1>Verträge</h1>
+      <div class="sub">Wiederkehrende Zahlungen — erkannt aus Umsätzen, monatlich normalisiert</div></div></header>`;
+    const fixSum = CONTRACTS_ACTIVE.filter(c=>!c.income)
+      .reduce((s,c)=>s+parseFloat(c.norm.replace('.','').replace(',','.')),0);
+    const tiles = div('tiles', '', root);
+    [['Fixkosten', eur(Math.round(fixSum))+'/Monat', 'var(--c-vertraege)'],
+     ['Vertrags-Einnahmen', '4.200 €/Monat', 'var(--c-sparen)'],
+     ['Aktive Verträge', String(CONTRACTS_ACTIVE.length), 'var(--c-wohnen)']]
+      .forEach(([l,v]) => div('card tile', `<div class="lbl">${l}</div><div class="val">${v}</div>`, tiles));
+
+    if (CONTRACTS_NEW.length) {
+      const newCard = div('card', `<h2>Neu erkannt</h2><div class="sub">Bestätigen übernimmt den Vertrag, Ablehnen verwirft den Vorschlag</div>`, root);
+      newCard.style.marginTop='16px';
+      CONTRACTS_NEW.forEach((c, i) => {
+        const row = div('contract', '', newCard);
+        row.innerHTML = `<span><b>${c.name}</b><div class="meta">${c.hint} · ${chip(catById(c.cat))}</div></span>
+          <span class="norm">${c.amount} · ${c.interval}<br>${c.norm}</span><span></span>`;
+        const btns = row.lastElementChild;
+        const ok = div('', 'Bestätigen', btns, 'button'); ok.className='btn primary';
+        const no = div('', 'Ablehnen', btns, 'button'); no.className='btn quiet'; no.style.marginLeft='6px';
+        ok.onclick = () => { CONTRACTS_ACTIVE.push(CONTRACTS_NEW.splice(i,1)[0]); paint(); };
+        no.onclick = () => { CONTRACTS_NEW.splice(i,1); paint(); };
+      });
+    }
+
+    const actCard = div('card', `<h2>Aktiv</h2>`, root);
+    actCard.style.marginTop='16px';
+    CONTRACTS_ACTIVE.forEach(c => {
+      div('contract', `<span><b>${c.name}</b><div class="meta">${c.income ? 'Einnahme' : ''} ${c.cat ? chip(catById(c.cat)) : ''} · nächste Zahlung ${c.next || '—'}</div></span>
+        <span class="norm">${c.amount} · ${c.interval}</span>
+        <span class="norm">${c.norm}</span>`, actCard);
+    });
+    div('sub', 'Interne Umbuchungen (z. B. Dauerauftrag Sparen) erscheinen hier nie — Verträge sind nur echte Einnahmen/Ausgaben', root).style.marginTop='10px';
+  }
+  paint();
+}
+
+function renderVermoegen(root) {
+  root.innerHTML = `<header class="page"><div><h1>Vermögen</h1>
+    <div class="sub">Aus Snapshots berechnet — Kontostände + Depotpositionen je Sync</div></div></header>`;
+  const depotVal = POSITIONS.reduce((s,p)=>s+p.qty*p.price,0);
+  const cashVal = ACCOUNTS.filter(a=>a.id!=='depot').reduce((s,a)=>s+a.balance,0);
+  const delta = NW.total[CUR]-NW.total[CUR-1];
+  const tiles = div('tiles', '', root);
+  [['Nettovermögen', eur(NW.total[CUR]), NW.total, 'var(--good)'],
+   ['Depot', eur(Math.round(depotVal)), NW.depot, 'var(--c-sparen)'],
+   ['Cash', eur(Math.round(cashVal)), NW.cash, 'var(--c-puffer)'],
+   ['Δ Monat', (delta>=0?'+':'')+eur(delta), null, null]]
+    .forEach(([l,v,trend,color]) => {
+      const t = div('card tile', `<div class="lbl">${l}</div><div class="val">${v}</div>`, tiles);
+      if (trend) sparkline(t, trend, color);
+    });
+
+  const chart = div('card', `<h2>Verlauf</h2><div class="sub">12 Monate · Depot zum Marktwert, Cash über alle Konten</div>`, root);
+  chart.style.marginTop='16px';
+  areaChart(chart, null, { width: 980, height: 250 });
+
+  const posCard = div('card', `<h2>Depotpositionen</h2><div class="sub">Scalable Depot · Stand letzter Sync (gestern)</div>`, root);
+  posCard.style.marginTop='16px';
+  const t = document.createElement('table');
+  t.innerHTML = '<tr><th class="l">Position</th><th>Stück</th><th>Kurs</th><th>Wert</th><th>Heute</th><th>Anteil</th></tr>'
+    + POSITIONS.map(p => {
+      const val = p.qty*p.price, d = (p.price-p.prev)/p.prev;
+      return `<tr><td class="l"><b>${p.name}</b><div class="sub">${p.isin}</div></td>
+        <td class="num">${p.qty}</td><td class="num">${eur2(p.price)}</td><td class="num">${eur(Math.round(val))}</td>
+        <td class="num" style="color:${d>=0?'var(--good)':'var(--bad)'}">${d>=0?'+':''}${(d*100).toFixed(1).replace('.',',')} %</td>
+        <td class="num">${pct(val/depotVal)}</td></tr>`;
+    }).join('')
+    + `<tr><td class="l"><b>Gesamt</b></td><td></td><td></td><td class="num"><b>${eur(Math.round(depotVal))}</b></td><td></td><td></td></tr>`;
+  posCard.appendChild(t);
+
+  const acctCard = div('card', `<h2>Konten</h2>`, root);
+  acctCard.style.marginTop='16px';
+  const t2 = document.createElement('table');
+  t2.innerHTML = ACCOUNTS.map(a => `<tr><td class="l">${a.name}<span class="sub"> · ${a.type}</span></td>
+    <td class="num">${eur2(a.balance)}</td></tr>`).join('');
+  acctCard.appendChild(t2);
+}
+
+function renderKonten(root) {
+  root.innerHTML = `<header class="page"><div><h1>Konten & Sync</h1>
+    <div class="sub">Manueller Sync — global oder je Konto · Commit atomar pro Konto</div></div></header>`;
+  const bar = div('card', '', root);
+  const barRow = div('row', '', bar); barRow.style.alignItems='center';
+  syncControls(barRow);
+  if (syncState.running || Object.keys(syncState.done).length || Object.keys(syncState.error).length) {
+    const rl = div('runline', '', bar); rl.style.marginTop='10px';
+    ACCOUNTS.filter(a=>a.src!=='CSV-Import').forEach(a => {
+      const st = syncState.error[a.id] ? '✕' : syncState.done[a.id] ? '✓' : syncState.running ? '…' : '·';
+      const cls = syncState.error[a.id] ? 'errbadge' : syncState.done[a.id] ? 'okdot' : '';
+      div('', `<span class="${cls}">${st}</span> ${a.name}`, rl, 'span');
+    });
+  }
+
+  const grid = div('acctgrid', '', root); grid.style.marginTop='16px';
+  ACCOUNTS.forEach(a => {
+    const c = div('card acct', '', grid);
+    div('top', `<b>${a.name}</b><span class="sub">${a.src}</span>`, c);
+    div('bal num', eur2(a.balance), c);
+    div('sub', a.type, c);
+    const foot = div('foot', '', c);
+    const err = syncState.error[a.id];
+    if (err) {
+      const e = div('errbadge', '✕ Sync fehlgeschlagen', foot);
+      hover(e, () => `<b>Fehlermeldung (Original)</b>${err}`);
+    } else {
+      div('sub' + (a.stale ? ' errbadge' : ''), (a.stale?'⚠ ':'') + (a.src==='CSV-Import' ? a.synced : `Synchronisiert ${a.synced}`), foot);
+    }
+    if (a.src === 'CSV-Import') {
+      const b = div('', 'CSV importieren …', foot, 'button'); b.className='btn';
+    } else {
+      const b = div('', err ? 'Erneut versuchen' : 'Sync', foot, 'button'); b.className='btn';
+      b.onclick = () => startSync(a.id);
+    }
+  });
+
+  div('dropzone', 'CSV hierher ziehen — PayPal-Aktivitäten oder Scalable-Export werden automatisch erkannt.<br><span class="sub">Import ist idempotent: erneutes Einlesen derselben Datei erzeugt keine Duplikate.</span>', root);
+}
+
+const RENDERERS = {
+  uebersicht: renderUebersicht, transaktionen: renderTransaktionen, kategorien: renderKategorien,
+  budget: renderBudget, vertraege: renderVertraege, vermoegen: renderVermoegen, konten: renderKonten,
+};
+
+/* ================= shells / variants ================= */
+const shellRoot = document.getElementById('shell');
+function currentScreen() {
+  const h = (location.hash || '#/uebersicht').replace(/^#\//,'').split('/');
+  return { id: SCREENS.some(s=>s.id===h[0]) ? h[0] : 'uebersicht', arg: h[1] };
+}
+function nav(id, arg) { location.hash = '#/' + id + (arg ? '/'+arg : ''); }
+
+function shellSidebar() {
+  const { id, arg } = currentScreen();
+  shellRoot.innerHTML = '';
+  const layout = div('layout-sidebar', '', shellRoot);
+  const side = div('side', '', layout, 'aside');
+  div('brand', 'mifi', side);
+  SCREENS.forEach(s => {
+    const a = div('navitem' + (s.id===id?' active':''), '', side, 'a');
+    a.href = '#/'+s.id;
+    const b = s.badge && s.badge();
+    a.innerHTML = `<span>${s.short || s.title}</span>` + (b ? `<span class="badge">${b}</span>` : '');
+  });
+  const sync = div('syncblock', '', side);
+  div('sub', 'Zuletzt: vor 2 Std.', sync).style.marginBottom='6px';
+  syncControls(sync, { compact:true });
+  const main = div('content', '', layout, 'main');
+  RENDERERS[id](main, nav, arg);
+}
+
+function shellTopbar() {
+  const { id, arg } = currentScreen();
+  shellRoot.innerHTML = '';
+  const layout = div('layout-top', '', shellRoot);
+  const bar = div('topbar', '', layout);
+  div('brand', 'mifi', bar);
+  SCREENS.forEach(s => {
+    const a = div('tab' + (s.id===id?' active':''), '', bar, 'a');
+    a.href = '#/'+s.id;
+    const b = s.badge && s.badge();
+    a.innerHTML = (s.short || s.title) + (b ? ` <span class="badge">${b}</span>` : '');
+  });
+  div('spacer', '', bar);
+  syncControls(bar, { compact:true });
+  const main = div('content', '', layout, 'main');
+  RENDERERS[id](main, nav, arg);
+}
+
+function shellHub() {
+  const { id, arg } = currentScreen();
+  shellRoot.innerHTML = '';
+  const layout = div('layout-hub', '', shellRoot);
+  const main = div('content', '', layout, 'main');
+  if (id !== 'uebersicht') {
+    const crumb = div('crumbbar', '', main);
+    crumb.innerHTML = `<a href="#/uebersicht">‹ Übersicht</a> <span class="sub">/ ${SCREENS.find(s=>s.id===id).title}</span>`;
+  }
+  RENDERERS[id](main, nav, arg);
+  const links = div('hublinks', '', main);
+  SCREENS.filter(s => s.id !== id).forEach(s => {
+    const a = div('', '', links, 'a'); a.href = '#/'+s.id;
+    const b = s.badge && s.badge();
+    a.innerHTML = s.title + (b ? `<span class="badge">${b}</span>` : '');
+  });
+}
+
+/* ================= variant switcher ================= */
+const VARIANTS = [
+  ['A', 'Seitenleiste (Desktop-App)', shellSidebar],
+  ['B', 'Kopfleiste mit Tabs', shellTopbar],
+  ['C', 'Hub & Spoke (Übersicht als Zentrale)', shellHub],
+];
+let idx = Math.max(0, VARIANTS.findIndex(([k]) => k === (new URLSearchParams(location.search).get('variant') || 'A').toUpperCase()));
+function show(i) {
+  idx = (i + VARIANTS.length) % VARIANTS.length;
+  const [key, name, fn] = VARIANTS[idx];
+  try { history.replaceState(null, '', '?variant=' + key + location.hash); } catch (e) { /* file:// blocks this */ }
+  document.getElementById('vname').textContent = `${key} — ${name}`;
+  tooltip.style.display = 'none';
+  rerender = fn;
+  fn();
+}
+document.getElementById('prev').addEventListener('click', () => show(idx - 1));
+document.getElementById('next').addEventListener('click', () => show(idx + 1));
+document.addEventListener('keydown', e => {
+  const t = e.target;
+  if (t.matches('input, textarea, select, [contenteditable]')) return;
+  if (e.key === 'ArrowLeft') show(idx - 1);
+  if (e.key === 'ArrowRight') show(idx + 1);
+});
+window.addEventListener('hashchange', () => { tooltip.style.display='none'; VARIANTS[idx][2](); });
+show(idx);
+</script>
+</body>
+</html>
