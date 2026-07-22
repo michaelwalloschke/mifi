@@ -43,6 +43,10 @@ const initialModel: Model = {
   budgetFormCategoryId: null,
   budgetFormAmount: '',
   budgetFormError: null,
+  vertraegeOverview: null,
+  vertraegeOverviewError: null,
+  vermoegenOverview: null,
+  vermoegenOverviewError: null,
 }
 
 describe('update', () => {

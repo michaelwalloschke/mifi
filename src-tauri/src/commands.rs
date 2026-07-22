@@ -1,10 +1,11 @@
 //! Tauri commands: the only bridge between the webview and the Rust core. No secrets
 //! cross this boundary (SPEC.md §2); every query here is read-only.
 
+use rusqlite::OptionalExtension;
 use serde::Serialize;
 use tauri::State;
 
-use mifi_core::domain::{budget, overview};
+use mifi_core::domain::{budget, contract, networth, overview};
 
 use crate::AppState;
 
@@ -322,4 +323,146 @@ pub fn set_budget_target(
     )
     .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+// VERTRÄGE
+
+#[derive(Debug, Serialize)]
+pub struct ContractRowDto {
+    pub id: i64,
+    pub normalized_counterparty: String,
+    pub direction: String,
+    pub expected_amount_cents: i64,
+    pub monthly_normalized_cents: i64,
+    pub interval: String,
+    pub next_expected_date: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VertraegeOverviewDto {
+    pub fixed_costs_monthly_cents: i64,
+    pub income_monthly_cents: i64,
+    pub active_count: i64,
+    pub contracts: Vec<ContractRowDto>,
+}
+
+#[tauri::command]
+pub fn get_vertraege_overview(state: State<AppState>) -> Result<VertraegeOverviewDto, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, normalized_counterparty, direction, expected_amount_cents, interval, next_expected_date
+             FROM contract WHERE status = 'confirmed' ORDER BY direction, normalized_counterparty",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let mut fixed_costs_monthly_cents = 0i64;
+    let mut income_monthly_cents = 0i64;
+    let mut contracts = Vec::new();
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    for (id, normalized_counterparty, direction, expected_amount_cents, interval, next_expected_date) in rows {
+        let monthly = contract::monthly_normalized_cents(expected_amount_cents, &interval);
+        if direction == "income" {
+            income_monthly_cents += monthly;
+        } else {
+            fixed_costs_monthly_cents += monthly;
+        }
+        contracts.push(ContractRowDto {
+            id,
+            normalized_counterparty,
+            direction,
+            expected_amount_cents,
+            monthly_normalized_cents: monthly,
+            interval,
+            next_expected_date,
+        });
+    }
+
+    Ok(VertraegeOverviewDto {
+        fixed_costs_monthly_cents,
+        income_monthly_cents,
+        active_count: contracts.len() as i64,
+        contracts,
+    })
+}
+
+// VERMÖGEN
+
+#[derive(Debug, Serialize)]
+pub struct AccountBalanceDto {
+    pub id: i64,
+    pub name: String,
+    pub account_type: String,
+    pub balance_cents: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VermoegenOverviewDto {
+    pub date: String,
+    pub net_cents: i64,
+    pub depot_cents: i64,
+    pub cash_cents: i64,
+    pub delta_month_cents: i64,
+    pub accounts: Vec<AccountBalanceDto>,
+}
+
+#[tauri::command]
+pub fn get_vermoegen_overview(state: State<AppState>) -> Result<VermoegenOverviewDto, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let one_month_ago = (chrono::Local::now().date_naive() - chrono::Months::new(1)).format("%Y-%m-%d").to_string();
+
+    let cash_cents = networth::cash_cents(&conn, &today).map_err(|e| e.to_string())?;
+    let depot_cents = networth::depot_cents(&conn, &today).map_err(|e| e.to_string())?;
+    let net_cents = cash_cents + depot_cents;
+    let previous_net_cents = networth::net_worth_cents(&conn, &one_month_ago).map_err(|e| e.to_string())?;
+
+    let mut stmt = conn
+        .prepare("SELECT id, name, type FROM account ORDER BY id")
+        .map_err(|e| e.to_string())?;
+    let accounts = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+        })
+        .map_err(|e| e.to_string())?
+        .map(|r| {
+            let (id, name, account_type) = r.map_err(|e: rusqlite::Error| e.to_string())?;
+            let balance_cents = if account_type == "depot" {
+                Some(depot_cents)
+            } else {
+                conn.query_row(
+                    "SELECT balance_cents FROM balance_snapshot WHERE account_id = ?1 ORDER BY date DESC LIMIT 1",
+                    [id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|e| e.to_string())?
+            };
+            Ok(AccountBalanceDto { id, name, account_type, balance_cents })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    Ok(VermoegenOverviewDto {
+        date: today,
+        net_cents,
+        depot_cents,
+        cash_cents,
+        delta_month_cents: net_cents - previous_net_cents,
+        accounts,
+    })
 }

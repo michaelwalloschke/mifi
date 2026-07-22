@@ -35,7 +35,9 @@ pub fn run() {
       commands::list_categories,
       commands::get_category_detail,
       commands::get_budget_overview,
-      commands::set_budget_target
+      commands::set_budget_target,
+      commands::get_vertraege_overview,
+      commands::get_vermoegen_overview
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

@@ -101,7 +101,44 @@ export const BudgetOverview = S.Struct({
 })
 export type BudgetOverview = typeof BudgetOverview.Type
 
-export const Screen = S.Literals(['Uebersicht', 'Transaktionen', 'Kategorien', 'Budget'])
+export const ContractRow = S.Struct({
+  id: S.Number,
+  normalized_counterparty: S.String,
+  direction: S.String,
+  expected_amount_cents: S.Number,
+  monthly_normalized_cents: S.Number,
+  interval: S.String,
+  next_expected_date: S.NullOr(S.String),
+})
+export type ContractRow = typeof ContractRow.Type
+
+export const VertraegeOverview = S.Struct({
+  fixed_costs_monthly_cents: S.Number,
+  income_monthly_cents: S.Number,
+  active_count: S.Number,
+  contracts: S.Array(ContractRow),
+})
+export type VertraegeOverview = typeof VertraegeOverview.Type
+
+export const AccountBalance = S.Struct({
+  id: S.Number,
+  name: S.String,
+  account_type: S.String,
+  balance_cents: S.NullOr(S.Number),
+})
+export type AccountBalance = typeof AccountBalance.Type
+
+export const VermoegenOverview = S.Struct({
+  date: S.String,
+  net_cents: S.Number,
+  depot_cents: S.Number,
+  cash_cents: S.Number,
+  delta_month_cents: S.Number,
+  accounts: S.Array(AccountBalance),
+})
+export type VermoegenOverview = typeof VermoegenOverview.Type
+
+export const Screen = S.Literals(['Uebersicht', 'Transaktionen', 'Kategorien', 'Budget', 'Vertraege', 'Vermoegen'])
 export type Screen = typeof Screen.Type
 
 export const Model = S.Struct({
@@ -124,6 +161,10 @@ export const Model = S.Struct({
   budgetFormCategoryId: S.NullOr(S.Number),
   budgetFormAmount: S.String,
   budgetFormError: S.NullOr(S.String),
+  vertraegeOverview: S.NullOr(VertraegeOverview),
+  vertraegeOverviewError: S.NullOr(S.String),
+  vermoegenOverview: S.NullOr(VermoegenOverview),
+  vermoegenOverviewError: S.NullOr(S.String),
 })
 export type Model = typeof Model.Type
 
@@ -150,6 +191,10 @@ export const TypedBudgetFormAmount = m('TypedBudgetFormAmount', { amount: S.Stri
 export const ClickedSetBudgetTarget = m('ClickedSetBudgetTarget')
 export const SetBudgetTargetSucceeded = m('SetBudgetTargetSucceeded')
 export const SetBudgetTargetFailed = m('SetBudgetTargetFailed', { error: S.String })
+export const FetchedVertraegeOverview = m('FetchedVertraegeOverview', { overview: VertraegeOverview })
+export const FailedFetchVertraegeOverview = m('FailedFetchVertraegeOverview', { error: S.String })
+export const FetchedVermoegenOverview = m('FetchedVermoegenOverview', { overview: VermoegenOverview })
+export const FailedFetchVermoegenOverview = m('FailedFetchVermoegenOverview', { error: S.String })
 
 export const Message = S.Union([
   FetchedAccounts,
@@ -173,6 +218,10 @@ export const Message = S.Union([
   ClickedSetBudgetTarget,
   SetBudgetTargetSucceeded,
   SetBudgetTargetFailed,
+  FetchedVertraegeOverview,
+  FailedFetchVertraegeOverview,
+  FetchedVermoegenOverview,
+  FailedFetchVermoegenOverview,
 ])
 export type Message = typeof Message.Type
 
@@ -269,6 +318,32 @@ export const SetBudgetTarget = Command.define(
   ),
 )
 
+export const FetchVertraegeOverview = Command.define(
+  'FetchVertraegeOverview',
+  FetchedVertraegeOverview,
+  FailedFetchVertraegeOverview,
+)(
+  Effect.tryPromise(() => invoke<VertraegeOverview>('get_vertraege_overview')).pipe(
+    Effect.match({
+      onSuccess: overview => FetchedVertraegeOverview({ overview }),
+      onFailure: error => FailedFetchVertraegeOverview({ error: String(error) }),
+    }),
+  ),
+)
+
+export const FetchVermoegenOverview = Command.define(
+  'FetchVermoegenOverview',
+  FetchedVermoegenOverview,
+  FailedFetchVermoegenOverview,
+)(
+  Effect.tryPromise(() => invoke<VermoegenOverview>('get_vermoegen_overview')).pipe(
+    Effect.match({
+      onSuccess: overview => FetchedVermoegenOverview({ overview }),
+      onFailure: error => FailedFetchVermoegenOverview({ error: String(error) }),
+    }),
+  ),
+)
+
 // UPDATE
 
 export const update = (
@@ -327,6 +402,10 @@ export const update = (
         [FetchBudgetOverview()],
       ],
       SetBudgetTargetFailed: ({ error }) => [{ ...model, budgetFormError: error }, []],
+      FetchedVertraegeOverview: ({ overview }) => [{ ...model, vertraegeOverview: overview }, []],
+      FailedFetchVertraegeOverview: ({ error }) => [{ ...model, vertraegeOverviewError: error }, []],
+      FetchedVermoegenOverview: ({ overview }) => [{ ...model, vermoegenOverview: overview }, []],
+      FailedFetchVermoegenOverview: ({ error }) => [{ ...model, vermoegenOverviewError: error }, []],
     }),
   )
 
@@ -353,6 +432,10 @@ export const init: Runtime.ApplicationInit<Model, Message> = () => [
     budgetFormCategoryId: null,
     budgetFormAmount: '',
     budgetFormError: null,
+    vertraegeOverview: null,
+    vertraegeOverviewError: null,
+    vermoegenOverview: null,
+    vermoegenOverviewError: null,
   },
   [
     FetchAccounts(),
@@ -360,6 +443,8 @@ export const init: Runtime.ApplicationInit<Model, Message> = () => [
     FetchOverview(),
     FetchCategories(),
     FetchBudgetOverview(),
+    FetchVertraegeOverview(),
+    FetchVermoegenOverview(),
   ],
 ]
 
@@ -408,8 +493,8 @@ const NAV_ITEMS: ReadonlyArray<{ label: string; screen: Screen | null }> = [
   { label: 'Transaktionen', screen: 'Transaktionen' },
   { label: 'Kategorien', screen: 'Kategorien' },
   { label: 'Budget', screen: 'Budget' },
-  { label: 'Verträge', screen: null },
-  { label: 'Vermögen', screen: null },
+  { label: 'Verträge', screen: 'Vertraege' },
+  { label: 'Vermögen', screen: 'Vermoegen' },
   { label: 'Konten', screen: null },
 ]
 
@@ -842,11 +927,181 @@ const budgetScreen = (h: ReturnType<typeof html<Message>>, model: Model) => {
   )
 }
 
+const INTERVAL_LABELS: Record<string, string> = {
+  weekly: 'wöchentlich',
+  biweekly: 'zweiwöchentlich',
+  monthly: 'monatlich',
+  quarterly: 'vierteljährlich',
+  yearly: 'jährlich',
+}
+
+const contractListRow = (h: ReturnType<typeof html<Message>>, contract: ContractRow) =>
+  h.keyed('tr')(
+    contract.id,
+    [],
+    [
+      h.td([h.Class('py-2')], [contract.normalized_counterparty]),
+      h.td([h.Class('py-2 text-sm text-black/40 dark:text-white/40')], [INTERVAL_LABELS[contract.interval] ?? contract.interval]),
+      h.td([h.Class('py-2 text-sm text-black/40 dark:text-white/40')], [contract.next_expected_date ?? '—']),
+      h.td([h.Class('py-2 text-right tabular-nums')], [formatAmountCents(contract.expected_amount_cents)]),
+      h.td(
+        [h.Class('py-2 text-right tabular-nums text-black/40 dark:text-white/40')],
+        [`${formatAmountCents(contract.monthly_normalized_cents)}/Monat`],
+      ),
+    ],
+  )
+
+const vertraegeScreen = (h: ReturnType<typeof html<Message>>, model: Model) => {
+  if (model.vertraegeOverviewError) {
+    return h.div([h.Class('flex-1 p-8')], [h.div([h.Class('text-red-600')], [model.vertraegeOverviewError])])
+  }
+  if (!model.vertraegeOverview) {
+    return h.div([h.Class('flex-1 p-8 text-black/40 dark:text-white/40')], ['Lädt …'])
+  }
+
+  const { fixed_costs_monthly_cents, income_monthly_cents, active_count, contracts } = model.vertraegeOverview
+
+  return h.div(
+    [h.Class('flex-1 p-8 overflow-y-auto')],
+    [
+      h.div([h.Class('text-2xl font-semibold mb-6')], ['Verträge']),
+      h.div(
+        [h.Class('grid grid-cols-3 gap-4 mb-6')],
+        [
+          h.div(
+            [h.Class('rounded-[10px] border border-black/10 dark:border-white/10 p-4')],
+            [
+              h.div([h.Class('text-sm text-black/40 dark:text-white/40')], ['Fixkosten/Monat']),
+              h.div([h.Class('text-2xl font-semibold tabular-nums')], [formatAmountCents(-fixed_costs_monthly_cents)]),
+            ],
+          ),
+          h.div(
+            [h.Class('rounded-[10px] border border-black/10 dark:border-white/10 p-4')],
+            [
+              h.div([h.Class('text-sm text-black/40 dark:text-white/40')], ['Vertragseinnahmen/Monat']),
+              h.div([h.Class('text-2xl font-semibold tabular-nums')], [formatAmountCents(income_monthly_cents)]),
+            ],
+          ),
+          h.div(
+            [h.Class('rounded-[10px] border border-black/10 dark:border-white/10 p-4')],
+            [
+              h.div([h.Class('text-sm text-black/40 dark:text-white/40')], ['Aktive Verträge']),
+              h.div([h.Class('text-2xl font-semibold tabular-nums')], [String(active_count)]),
+            ],
+          ),
+        ],
+      ),
+      h.div(
+        [h.Class('rounded-[10px] border border-black/10 dark:border-white/10 p-4')],
+        [
+          h.table(
+            [h.Class('w-full')],
+            [
+              h.thead(
+                [h.Class('text-left text-sm text-black/40 dark:text-white/40 border-b border-black/10 dark:border-white/10')],
+                [
+                  h.tr(
+                    [],
+                    [
+                      h.th([h.Class('py-2 font-normal')], ['Vertrag']),
+                      h.th([h.Class('py-2 font-normal')], ['Turnus']),
+                      h.th([h.Class('py-2 font-normal')], ['Nächste Zahlung']),
+                      h.th([h.Class('py-2 font-normal text-right')], ['Betrag']),
+                      h.th([h.Class('py-2 font-normal text-right')], ['Normalisiert']),
+                    ],
+                  ),
+                ],
+              ),
+              h.tbody([], contracts.map(contract => contractListRow(h, contract))),
+            ],
+          ),
+        ],
+      ),
+    ],
+  )
+}
+
+const accountBalanceRow = (h: ReturnType<typeof html<Message>>, account: AccountBalance) =>
+  h.keyed('div')(
+    account.id,
+    [h.Class('flex items-baseline justify-between py-2 border-b border-black/5 dark:border-white/5 last:border-0')],
+    [
+      h.div(
+        [],
+        [
+          h.div([h.Class('font-medium')], [account.name]),
+          h.div([h.Class('text-xs text-black/40 dark:text-white/40')], [account.account_type]),
+        ],
+      ),
+      h.div(
+        [h.Class('tabular-nums')],
+        [account.balance_cents === null ? '—' : formatAmountCents(account.balance_cents)],
+      ),
+    ],
+  )
+
+const vermoegenScreen = (h: ReturnType<typeof html<Message>>, model: Model) => {
+  if (model.vermoegenOverviewError) {
+    return h.div([h.Class('flex-1 p-8')], [h.div([h.Class('text-red-600')], [model.vermoegenOverviewError])])
+  }
+  if (!model.vermoegenOverview) {
+    return h.div([h.Class('flex-1 p-8 text-black/40 dark:text-white/40')], ['Lädt …'])
+  }
+
+  const { net_cents, depot_cents, cash_cents, delta_month_cents, accounts } = model.vermoegenOverview
+
+  return h.div(
+    [h.Class('flex-1 p-8 overflow-y-auto')],
+    [
+      h.div([h.Class('text-2xl font-semibold mb-6')], ['Vermögen']),
+      h.div(
+        [h.Class('grid grid-cols-4 gap-4 mb-6')],
+        [
+          h.div(
+            [h.Class('rounded-[10px] border border-black/10 dark:border-white/10 p-4')],
+            [
+              h.div([h.Class('text-sm text-black/40 dark:text-white/40')], ['Netto']),
+              h.div([h.Class('text-2xl font-semibold tabular-nums')], [formatAmountCents(net_cents)]),
+            ],
+          ),
+          h.div(
+            [h.Class('rounded-[10px] border border-black/10 dark:border-white/10 p-4')],
+            [
+              h.div([h.Class('text-sm text-black/40 dark:text-white/40')], ['Depot']),
+              h.div([h.Class('text-2xl font-semibold tabular-nums')], [formatAmountCents(depot_cents)]),
+            ],
+          ),
+          h.div(
+            [h.Class('rounded-[10px] border border-black/10 dark:border-white/10 p-4')],
+            [
+              h.div([h.Class('text-sm text-black/40 dark:text-white/40')], ['Cash']),
+              h.div([h.Class('text-2xl font-semibold tabular-nums')], [formatAmountCents(cash_cents)]),
+            ],
+          ),
+          h.div(
+            [h.Class('rounded-[10px] border border-black/10 dark:border-white/10 p-4')],
+            [
+              h.div([h.Class('text-sm text-black/40 dark:text-white/40')], ['Δ Monat']),
+              h.div([h.Class('text-2xl font-semibold tabular-nums')], [formatAmountCents(delta_month_cents)]),
+            ],
+          ),
+        ],
+      ),
+      h.div(
+        [h.Class('rounded-[10px] border border-black/10 dark:border-white/10 p-4')],
+        [h.div([h.Class('text-sm text-black/40 dark:text-white/40 mb-2')], ['Konten']), ...accounts.map(account => accountBalanceRow(h, account))],
+      ),
+    ],
+  )
+}
+
 const screenTitles: Record<Screen, string> = {
   Uebersicht: 'Übersicht',
   Transaktionen: 'Transaktionen',
   Kategorien: 'Kategorien',
   Budget: 'Budget',
+  Vertraege: 'Verträge',
+  Vermoegen: 'Vermögen',
 }
 
 const screenView = (h: ReturnType<typeof html<Message>>, model: Model) => {
@@ -857,6 +1112,10 @@ const screenView = (h: ReturnType<typeof html<Message>>, model: Model) => {
       return kategorienScreen(h, model)
     case 'Budget':
       return budgetScreen(h, model)
+    case 'Vertraege':
+      return vertraegeScreen(h, model)
+    case 'Vermoegen':
+      return vermoegenScreen(h, model)
     case 'Transaktionen':
       return transaktionenScreen(h, model)
   }

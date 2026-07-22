@@ -23,6 +23,10 @@ const baseModel: Model = {
   budgetFormCategoryId: null,
   budgetFormAmount: '',
   budgetFormError: null,
+  vertraegeOverview: null,
+  vertraegeOverviewError: null,
+  vermoegenOverview: null,
+  vermoegenOverviewError: null,
 }
 
 describe('Transaktionen screen', () => {
@@ -196,6 +200,64 @@ describe('Budget screen', () => {
       Scene.expect(Scene.text('Essen & Trinken')).toExist(),
       Scene.expect(Scene.text('▲ 80 % erreicht')).toExist(),
       Scene.expect(Scene.text('Ohne Budget')).toExist(),
+    )
+  })
+})
+
+describe('Verträge screen', () => {
+  test('renders stat tiles and the active Contract list', () => {
+    const model: Model = {
+      ...baseModel,
+      screen: 'Vertraege',
+      vertraegeOverview: {
+        fixed_costs_monthly_cents: 5000,
+        income_monthly_cents: 300000,
+        active_count: 2,
+        contracts: [
+          {
+            id: 1,
+            normalized_counterparty: 'netflix',
+            direction: 'expense',
+            expected_amount_cents: 1499,
+            monthly_normalized_cents: 1499,
+            interval: 'monthly',
+            next_expected_date: null,
+          },
+        ],
+      },
+    }
+
+    Scene.scene(
+      { update, view },
+      Scene.with(model),
+      Scene.expect(Scene.text('Fixkosten/Monat')).toExist(),
+      Scene.expect(Scene.text('netflix')).toExist(),
+      Scene.expect(Scene.text('monatlich')).toExist(),
+    )
+  })
+})
+
+describe('Vermögen screen', () => {
+  test('renders the four stat tiles and the account list', () => {
+    const model: Model = {
+      ...baseModel,
+      screen: 'Vermoegen',
+      vermoegenOverview: {
+        date: '2024-05-20',
+        net_cents: 150000,
+        depot_cents: 50000,
+        cash_cents: 100000,
+        delta_month_cents: 2000,
+        accounts: [{ id: 1, name: 'Consorsbank Giro', account_type: 'checking', balance_cents: 100000 }],
+      },
+    }
+
+    Scene.scene(
+      { update, view },
+      Scene.with(model),
+      Scene.expect(Scene.text('Netto')).toExist(),
+      Scene.expect(Scene.text('Depot')).toExist(),
+      Scene.expect(Scene.text('Consorsbank Giro')).toExist(),
     )
   })
 })

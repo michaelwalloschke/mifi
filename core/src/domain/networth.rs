@@ -3,10 +3,10 @@
 
 use rusqlite::Connection;
 
-/// Sum of the latest balance Snapshot per account, plus the latest Position valuation
-/// per (account, isin), each at or before `date` ("YYYY-MM-DD").
-pub fn net_worth_cents(conn: &Connection, date: &str) -> rusqlite::Result<i64> {
-    let cash: i64 = conn.query_row(
+/// Sum of the latest balance Snapshot per account, at or before `date` ("YYYY-MM-DD").
+/// Depot valuation lives in `position_snapshot`, not here — see `depot_cents`.
+pub fn cash_cents(conn: &Connection, date: &str) -> rusqlite::Result<i64> {
+    conn.query_row(
         "SELECT COALESCE(SUM(balance_cents), 0) FROM (
             SELECT balance_cents,
                    ROW_NUMBER() OVER (PARTITION BY account_id ORDER BY date DESC) AS rn
@@ -14,9 +14,12 @@ pub fn net_worth_cents(conn: &Connection, date: &str) -> rusqlite::Result<i64> {
          ) WHERE rn = 1",
         [date],
         |row| row.get(0),
-    )?;
+    )
+}
 
-    let positions: i64 = conn.query_row(
+/// Sum of the latest Position valuation per (account, isin), at or before `date`.
+pub fn depot_cents(conn: &Connection, date: &str) -> rusqlite::Result<i64> {
+    conn.query_row(
         "SELECT COALESCE(SUM(valuation_cents), 0) FROM (
             SELECT valuation_cents,
                    ROW_NUMBER() OVER (PARTITION BY account_id, isin ORDER BY date DESC) AS rn
@@ -24,9 +27,12 @@ pub fn net_worth_cents(conn: &Connection, date: &str) -> rusqlite::Result<i64> {
          ) WHERE rn = 1",
         [date],
         |row| row.get(0),
-    )?;
+    )
+}
 
-    Ok(cash + positions)
+/// Net Worth at `date`: cash plus depot, derived, never stored.
+pub fn net_worth_cents(conn: &Connection, date: &str) -> rusqlite::Result<i64> {
+    Ok(cash_cents(conn, date)? + depot_cents(conn, date)?)
 }
 
 #[cfg(test)]
@@ -71,5 +77,20 @@ mod tests {
         .unwrap();
 
         assert_eq!(net_worth_cents(&conn, "2024-05-20").unwrap(), 1000 + 110000 + 25000);
+    }
+
+    #[test]
+    fn cash_and_depot_are_independently_queryable() {
+        let conn = db::open(":memory:").unwrap();
+        conn.execute("INSERT INTO balance_snapshot (account_id, date, balance_cents) VALUES (1, '2024-05-01', 10000)", [])
+            .unwrap();
+        conn.execute(
+            "INSERT INTO position_snapshot (account_id, isin, date, quantity, price, valuation_cents) VALUES (3, 'US1', '2024-05-01', 10, 100, 100000)",
+            [],
+        )
+        .unwrap();
+
+        assert_eq!(cash_cents(&conn, "2024-05-20").unwrap(), 10000);
+        assert_eq!(depot_cents(&conn, "2024-05-20").unwrap(), 100000);
     }
 }
