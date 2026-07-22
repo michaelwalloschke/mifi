@@ -46,6 +46,21 @@ pub fn normalize_purpose(raw: &str) -> String {
         .join(" ")
 }
 
+/// Strips PayPal/card-processor prefixes (`PAYPAL *STEAMGAMES`, `PP*Steam`) so a FinTS
+/// row for the same merchant and a PayPal-CSV row can be matched by the same normalized
+/// key (SPEC.md §6 normalization rule 5).
+pub fn strip_processor_prefix(raw: &str) -> &str {
+    let trimmed = raw.trim_start();
+    for prefix in ["PAYPAL *", "PAYPAL*", "PP*"] {
+        if let Some(rest) = trimmed.get(..prefix.len()) {
+            if rest.eq_ignore_ascii_case(prefix) {
+                return trimmed[prefix.len()..].trim_start();
+            }
+        }
+    }
+    trimmed
+}
+
 /// Splits normalized counterparty + purpose text into lowercase word tokens for
 /// Naive Bayes token counts (SPEC.md §7).
 pub fn tokenize(text: &str) -> Vec<String> {
@@ -83,6 +98,13 @@ mod tests {
             normalize_purpose("  Lohn  /  Gehalt   05/22 "),
             "lohn / gehalt 05/22"
         );
+    }
+
+    #[test]
+    fn strip_processor_prefix_heals_card_network_prefixes() {
+        assert_eq!(strip_processor_prefix("PAYPAL *STEAMGAMES"), "STEAMGAMES");
+        assert_eq!(strip_processor_prefix("PP*Steam"), "Steam");
+        assert_eq!(strip_processor_prefix("Rewe Markt"), "Rewe Markt");
     }
 
     #[test]

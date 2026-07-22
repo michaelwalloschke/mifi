@@ -37,6 +37,30 @@ impl OccurrenceCounter {
         *entry += 1;
         *entry
     }
+
+    /// Presets the counter so a later `next_index` continues from `existing_count` rather
+    /// than 0. Needed so re-imports/incremental exports keep occurrence indices stable
+    /// against rows already committed in a previous run.
+    pub fn seed(&mut self, account_id: i64, import_hash: &str, existing_count: i64) {
+        self.seen.insert((account_id, import_hash.to_string()), existing_count - 1);
+    }
+
+    /// Loads existing per-hash counts for `account_id` from `conn` and seeds the counter
+    /// with them, so a fresh `OccurrenceCounter` picks up where prior imports left off.
+    pub fn seeded_from_db(conn: &rusqlite::Connection, account_id: i64) -> rusqlite::Result<Self> {
+        let mut counter = Self::new();
+        let mut stmt = conn.prepare(
+            "SELECT import_hash, COUNT(*) FROM \"transaction\" WHERE account_id = ?1 GROUP BY import_hash",
+        )?;
+        let existing = stmt.query_map([account_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        for row in existing {
+            let (hash, count) = row?;
+            counter.seed(account_id, &hash, count);
+        }
+        Ok(counter)
+    }
 }
 
 #[cfg(test)]
@@ -64,5 +88,13 @@ mod tests {
         assert_eq!(counter.next_index(1, "h1"), 1);
         assert_eq!(counter.next_index(1, "h2"), 0);
         assert_eq!(counter.next_index(2, "h1"), 0);
+    }
+
+    #[test]
+    fn seed_continues_occurrence_index_from_existing_count() {
+        let mut counter = OccurrenceCounter::new();
+        counter.seed(1, "h1", 2);
+        assert_eq!(counter.next_index(1, "h1"), 2);
+        assert_eq!(counter.next_index(1, "h1"), 3);
     }
 }

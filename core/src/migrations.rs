@@ -5,6 +5,7 @@ fn migrations() -> Migrations<'static> {
     Migrations::new(vec![
         M::up(include_str!("../migrations/0001_init.sql")),
         M::up(include_str!("../migrations/0002_seed_accounts.sql")),
+        M::up(include_str!("../migrations/0003_transaction_external_ref_unique.sql")),
     ])
 }
 
