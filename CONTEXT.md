@@ -31,7 +31,7 @@ A label classifying spending or income, in a two-level tree: parent Category wit
 _Avoid_: tag, label, Hauptkategorie/Unterkategorie (use parent/subcategory)
 
 **Contract**:
-A recognized recurring money flow with an external counterparty, either direction — Netflix and salary both. Carries normalized counterparty, expected Amount with tolerance, interval (weekly/monthly/quarterly/yearly), Category, and lifecycle: detected → confirmed | dismissed, plus ended. Transactions link to at most one Contract; amount history derives from linked Transactions. Recurring internal moves (ETF sparplan, Giro→Tagesgeld) are Transfer patterns, never Contracts.
+A recognized recurring money flow with an external counterparty, either direction — Netflix and salary both. Carries normalized counterparty, expected Amount with tolerance, interval (weekly/biweekly/monthly/quarterly/yearly), Category, and lifecycle: detected → confirmed | dismissed, plus ended. Transactions link to at most one Contract; amount history derives from linked Transactions. Recurring internal moves (ETF sparplan, Giro→Tagesgeld) are Transfer patterns, never Contracts.
 _Avoid_: subscription, standing order, Vertrag (all are Contracts)
 
 **Budget**:
