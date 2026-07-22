@@ -1,77 +1,57 @@
 import { Story } from 'foldkit'
 import { describe, expect, test } from 'vitest'
 
-import {
-  ClickedDecrement,
-  ClickedIncrement,
-  ClickedReset,
-  type Model,
-  update,
-} from './main'
+import { FetchedTransactions, FetchTransactions, SelectedAccount, TypedSearch, type Model, update } from './main'
 
-const initialModel: Model = { count: 0 }
+const initialModel: Model = {
+  accounts: [
+    { id: 1, name: 'Consorsbank Giro' },
+    { id: 2, name: 'Consorsbank Tagesgeld' },
+  ],
+  transactions: [],
+  selectedAccountId: null,
+  search: '',
+  loading: false,
+  error: null,
+}
 
 describe('update', () => {
-  test('ClickedIncrement adds one to the count', () => {
+  test('SelectedAccount updates the filter and triggers a refetch', () => {
     Story.story(
       update,
       Story.with(initialModel),
-      Story.message(ClickedIncrement()),
-      Story.Command.expectNone(),
+      Story.message(SelectedAccount({ accountId: 1 })),
+      Story.Command.expectHas(FetchTransactions),
       Story.model(model => {
-        expect(model.count).toBe(1)
+        expect(model.selectedAccountId).toBe(1)
+        expect(model.loading).toBe(true)
       }),
+      Story.Command.resolve(FetchTransactions, FetchedTransactions({ transactions: [] })),
     )
   })
 
-  test('ClickedDecrement subtracts one from the count', () => {
+  test('SelectedAccount with null shows all accounts again', () => {
     Story.story(
       update,
-      Story.with({ count: 5 }),
-      Story.message(ClickedDecrement()),
+      Story.with({ ...initialModel, selectedAccountId: 1 }),
+      Story.message(SelectedAccount({ accountId: null })),
       Story.model(model => {
-        expect(model.count).toBe(4)
+        expect(model.selectedAccountId).toBeNull()
       }),
+      Story.Command.resolve(FetchTransactions, FetchedTransactions({ transactions: [] })),
     )
   })
 
-  test('ClickedDecrement past zero produces a negative count', () => {
-    Story.story(
-      update,
-      Story.with(initialModel),
-      Story.message(ClickedDecrement()),
-      Story.model(model => {
-        expect(model.count).toBe(-1)
-      }),
-    )
-  })
-
-  test('ClickedReset sets the count back to zero', () => {
-    Story.story(
-      update,
-      Story.with({ count: 99 }),
-      Story.message(ClickedReset()),
-      Story.model(model => {
-        expect(model.count).toBe(0)
-      }),
-    )
-  })
-
-  test('successive Messages accumulate as expected', () => {
+  test('TypedSearch updates the query and triggers a refetch', () => {
     Story.story(
       update,
       Story.with(initialModel),
-      Story.message(ClickedIncrement()),
-      Story.message(ClickedIncrement()),
-      Story.message(ClickedIncrement()),
-      Story.message(ClickedDecrement()),
+      Story.message(TypedSearch({ query: 'rewe' })),
+      Story.Command.expectHas(FetchTransactions),
       Story.model(model => {
-        expect(model.count).toBe(2)
+        expect(model.search).toBe('rewe')
       }),
-      Story.message(ClickedReset()),
-      Story.model(model => {
-        expect(model.count).toBe(0)
-      }),
+      Story.Command.resolve(FetchTransactions, FetchedTransactions({ transactions: [] })),
     )
   })
 })

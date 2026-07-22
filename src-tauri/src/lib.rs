@@ -1,3 +1,5 @@
+mod commands;
+
 use std::sync::Mutex;
 
 use tauri::Manager;
@@ -26,6 +28,10 @@ pub fn run() {
 
       Ok(())
     })
+    .invoke_handler(tauri::generate_handler![
+      commands::list_accounts,
+      commands::list_transactions
+    ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }
