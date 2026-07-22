@@ -30,11 +30,12 @@ A build-ready spec for **mifi**: a local-first, single-user Tauri desktop app th
 - [Refresh/sync UX](issues/16-sync-ux.md) — manual-only Sync Run (global + per-account, no scheduler/launch nudge); TAN via blocking modal (code-entry + decoupled SecurePlus polling, cancel fails FinTS only); passive 3-layer status (timestamps, run ticks, error badge + retry), last-outcome-only state; commits atomic per account — failure writes nothing, Snapshots only on successful fetch of their data class, transfer/contract detection re-runs once per run. Sync Run pinned in CONTEXT.md.
 - [UI information architecture](issues/18-ui-information-architecture.md) — sidebar navigation locked (variant A: fixed left rail, badges on items, sync block at bottom); 7-screen map confirmed (Übersicht, Transaktionen, Kategorien, Budget, Verträge, Vermögen, Konten & Sync) with per-screen layouts prototyped; design language = ticket-04 system (warm-gray cards, validated category palette, status = icon+text, hand-rolled SVG). Clickable prototype + shots linked on ticket.
 - [Finanzguru export salvage](issues/03-finanzguru-export-salvage.md) — XLSX salvaged: 4.6k rows 2022→now (Giro/Tagesgeld/PayPal, no Scalable), full depth-2 category labels (14/64), 49 labeled contracts (incl. biweekly turnus — flagged on recurring detection), 912 labeled transfer legs; seeds history, categorization, and contract bootstrap. Findings: [assets/03-finanzguru-export.md](assets/03-finanzguru-export.md).
+- [Categorization approach](issues/07-categorization-approach.md) — three local layers: normalized-merchant memory → hand-rolled naive Bayes in Rust core (threshold-gated, honest uncategorized queue) → local LLM async post-sync sweep (ollama/LM Studio via one OpenAI-compatible URL, valid-category-or-nothing); corrections feed memory+NB with offered retro-apply; seeded from salvage (purity-gated memory rules, full NB counts, transfer legs excluded); Finanzguru taxonomy 14/64 adopted verbatim; cloud LLM hard no.
 - [Security model](issues/12-security-model.md) — threat model = lost/stolen machine only (compromised OS out of scope); secrets in macOS login keychain via `keyring` crate in the Rust core (no Tauri plugin/Stronghold, webview never sees secrets); plain SQLite + FileVault, SQLCipher rejected (startup `fdesetup` warning); backup = encrypted Time Machine + `VACUUM INTO` export, restore re-enters PIN once; PIN/TAN/tokens never in DB/config/logs. Spec assembly now waits only on recurring detection.
 
 ## Not yet specified
 
-- Concrete category taxonomy. Salvage yields a ready depth-2 seed (14 main / 64 sub, see [assets/03-finanzguru-export.md](assets/03-finanzguru-export.md)); adopt-vs-trim hangs on the categorization approach.
+*(empty — all fog cleared)*
 
 ## Out of scope
 
