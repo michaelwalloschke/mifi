@@ -4,12 +4,15 @@ import { describe, test } from 'vitest'
 import { type Model, update, view } from './main'
 
 const baseModel: Model = {
+  screen: 'Transaktionen',
   accounts: [{ id: 1, name: 'Consorsbank Giro' }],
   transactions: [],
   selectedAccountId: null,
   search: '',
   loading: false,
   error: null,
+  overview: null,
+  overviewError: null,
 }
 
 describe('Transaktionen screen', () => {
@@ -90,6 +93,42 @@ describe('Transaktionen screen', () => {
       { update, view },
       Scene.with(model),
       Scene.expect(Scene.text('⇄ Umbuchung — nicht in Auswertungen')).toExist(),
+    )
+  })
+})
+
+describe('Übersicht screen', () => {
+  const overviewModel: Model = {
+    ...baseModel,
+    screen: 'Uebersicht',
+    overview: {
+      current: { month: '2024-05', einnahmen_cents: 442500, ausgaben_cents: 293900, sparquote_percent: 33.6, puffer_cents: 148600 },
+      previous: { month: '2024-04', einnahmen_cents: 420000, ausgaben_cents: 288700, sparquote_percent: 31.3, puffer_cents: 131300 },
+      sparkline: [
+        { month: '2024-04', einnahmen_cents: 420000, ausgaben_cents: 288700, sparquote_percent: 31.3, puffer_cents: 131300 },
+        { month: '2024-05', einnahmen_cents: 442500, ausgaben_cents: 293900, sparquote_percent: 33.6, puffer_cents: 148600 },
+      ],
+    },
+  }
+
+  test('renders the four stat tiles with real figures', () => {
+    Scene.scene(
+      { update, view },
+      Scene.with(overviewModel),
+      Scene.expect(Scene.text('Einnahmen')).toExist(),
+      Scene.expect(Scene.text('+4.425,00 €')).toExist(),
+      Scene.expect(Scene.text('Ausgaben')).toExist(),
+      Scene.expect(Scene.text('Sparquote')).toExist(),
+      Scene.expect(Scene.text('34 %')).toExist(),
+      Scene.expect(Scene.text('Puffer übrig')).toExist(),
+    )
+  })
+
+  test('shows a loading state before the overview arrives', () => {
+    Scene.scene(
+      { update, view },
+      Scene.with({ ...baseModel, screen: 'Uebersicht', overview: null }),
+      Scene.expect(Scene.text('Lädt …')).toExist(),
     )
   })
 })

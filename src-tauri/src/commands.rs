@@ -4,6 +4,8 @@
 use serde::Serialize;
 use tauri::State;
 
+use mifi_core::domain::overview;
+
 use crate::AppState;
 
 #[derive(Debug, Serialize)]
@@ -91,4 +93,50 @@ pub fn list_transactions(
         }
     }
     Ok(transactions)
+}
+
+#[derive(Debug, Serialize)]
+pub struct MonthlyOverviewDto {
+    pub month: String,
+    pub einnahmen_cents: i64,
+    pub ausgaben_cents: i64,
+    pub sparquote_percent: f64,
+    pub puffer_cents: i64,
+}
+
+impl From<overview::MonthlyOverview> for MonthlyOverviewDto {
+    fn from(o: overview::MonthlyOverview) -> Self {
+        Self {
+            month: o.month,
+            einnahmen_cents: o.einnahmen_cents,
+            ausgaben_cents: o.ausgaben_cents,
+            sparquote_percent: o.sparquote_percent,
+            puffer_cents: o.puffer_cents,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct OverviewDto {
+    pub current: MonthlyOverviewDto,
+    pub previous: MonthlyOverviewDto,
+    /// Trailing 12 months (oldest first, current month last) — feeds each tile's sparkline.
+    pub sparkline: Vec<MonthlyOverviewDto>,
+}
+
+#[tauri::command]
+pub fn get_overview(state: State<AppState>, month: Option<String>) -> Result<OverviewDto, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let month = month.unwrap_or_else(|| chrono::Local::now().format("%Y-%m").to_string());
+    let previous_month = overview::months_before(&month, 1);
+
+    let current = overview::compute_month(&conn, &month).map_err(|e| e.to_string())?;
+    let previous = overview::compute_month(&conn, &previous_month).map_err(|e| e.to_string())?;
+    let sparkline = overview::compute_series(&conn, &month, 12).map_err(|e| e.to_string())?;
+
+    Ok(OverviewDto {
+        current: current.into(),
+        previous: previous.into(),
+        sparkline: sparkline.into_iter().map(Into::into).collect(),
+    })
 }

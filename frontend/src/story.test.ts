@@ -1,9 +1,10 @@
 import { Story } from 'foldkit'
 import { describe, expect, test } from 'vitest'
 
-import { FetchedTransactions, FetchTransactions, SelectedAccount, TypedSearch, type Model, update } from './main'
+import { ClickedNavItem, FetchedTransactions, FetchTransactions, SelectedAccount, TypedSearch, type Model, update } from './main'
 
 const initialModel: Model = {
+  screen: 'Transaktionen',
   accounts: [
     { id: 1, name: 'Consorsbank Giro' },
     { id: 2, name: 'Consorsbank Tagesgeld' },
@@ -13,6 +14,8 @@ const initialModel: Model = {
   search: '',
   loading: false,
   error: null,
+  overview: null,
+  overviewError: null,
 }
 
 describe('update', () => {
@@ -52,6 +55,18 @@ describe('update', () => {
         expect(model.search).toBe('rewe')
       }),
       Story.Command.resolve(FetchTransactions, FetchedTransactions({ transactions: [] })),
+    )
+  })
+
+  test('ClickedNavItem switches the active screen without refetching', () => {
+    Story.story(
+      update,
+      Story.with(initialModel),
+      Story.message(ClickedNavItem({ screen: 'Uebersicht' })),
+      Story.Command.expectNone(),
+      Story.model(model => {
+        expect(model.screen).toBe('Uebersicht')
+      }),
     )
   })
 })
