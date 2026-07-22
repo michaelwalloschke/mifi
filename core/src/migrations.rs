@@ -2,7 +2,10 @@ use rusqlite::Connection;
 use rusqlite_migration::{Migrations, M};
 
 fn migrations() -> Migrations<'static> {
-    Migrations::new(vec![M::up(include_str!("../migrations/0001_init.sql"))])
+    Migrations::new(vec![
+        M::up(include_str!("../migrations/0001_init.sql")),
+        M::up(include_str!("../migrations/0002_seed_accounts.sql")),
+    ])
 }
 
 /// Runs all pending migrations against `conn`. Safe to call on every startup.
