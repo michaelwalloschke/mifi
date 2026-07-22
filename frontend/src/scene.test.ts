@@ -13,6 +13,16 @@ const baseModel: Model = {
   error: null,
   overview: null,
   overviewError: null,
+  categories: [],
+  categoriesError: null,
+  selectedCategoryId: null,
+  categoryDetail: null,
+  categoryDetailError: null,
+  budgetOverview: null,
+  budgetOverviewError: null,
+  budgetFormCategoryId: null,
+  budgetFormAmount: '',
+  budgetFormError: null,
 }
 
 describe('Transaktionen screen', () => {
@@ -129,6 +139,63 @@ describe('Übersicht screen', () => {
       { update, view },
       Scene.with({ ...baseModel, screen: 'Uebersicht', overview: null }),
       Scene.expect(Scene.text('Lädt …')).toExist(),
+    )
+  })
+})
+
+describe('Kategorien screen', () => {
+  test('renders subcategories and Contracts for the selected category', () => {
+    const model: Model = {
+      ...baseModel,
+      screen: 'Kategorien',
+      categories: [
+        { id: 1, parent_id: null, name: 'Essen & Trinken', kind: 'expense' },
+        { id: 2, parent_id: 1, name: 'Supermarkt', kind: 'expense' },
+      ],
+      selectedCategoryId: 1,
+      categoryDetail: {
+        id: 1,
+        name: 'Essen & Trinken',
+        kind: 'expense',
+        month: '2024-05',
+        spent_cents: -8430,
+        subcategories: [{ id: 2, name: 'Supermarkt', spent_cents: -8430 }],
+        contracts: [
+          { id: 1, normalized_counterparty: 'netflix', direction: 'expense', expected_amount_cents: 1499, interval: 'monthly', status: 'confirmed' },
+        ],
+      },
+    }
+
+    Scene.scene(
+      { update, view },
+      Scene.with(model),
+      Scene.expect(Scene.text('Supermarkt')).toExist(),
+      Scene.expect(Scene.text('netflix')).toExist(),
+      Scene.expect(Scene.text('monthly')).toExist(),
+    )
+  })
+})
+
+describe('Budget screen', () => {
+  test('renders a budget row with state label and the Ohne Budget aggregate', () => {
+    const model: Model = {
+      ...baseModel,
+      screen: 'Budget',
+      budgetOverview: {
+        month: '2024-05',
+        rows: [
+          { category_id: 1, category_name: 'Essen & Trinken', parent_id: null, target_cents: 40000, spent_cents: 35000, state: 'warning' },
+        ],
+        unbudgeted_expense_cents: 12000,
+      },
+    }
+
+    Scene.scene(
+      { update, view },
+      Scene.with(model),
+      Scene.expect(Scene.text('Essen & Trinken')).toExist(),
+      Scene.expect(Scene.text('▲ 80 % erreicht')).toExist(),
+      Scene.expect(Scene.text('Ohne Budget')).toExist(),
     )
   })
 })
