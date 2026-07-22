@@ -29,6 +29,9 @@ pub struct RawRow {
     pub unterkategorie: String,
     pub is_transfer: bool,
     pub external_ref: Option<String>,
+    pub is_contract: bool,
+    pub contract_turnus: Option<String>,
+    pub contract_id_raw: Option<String>,
 }
 
 /// Maps the export's `Referenzkonto` values (IBANs / PayPal account ref) to mifi's fixed
@@ -60,6 +63,7 @@ pub struct SeedSummary {
     pub categories_created: usize,
     pub merchant_rules_created: usize,
     pub balance_snapshots_created: usize,
+    pub contracts_created: usize,
 }
 
 #[derive(Debug)]
@@ -99,6 +103,8 @@ pub fn parse_xlsx(path: impl AsRef<Path>) -> Result<Vec<RawRow>, SeedError> {
         let amount_cents = (cell(3).as_f64().unwrap_or(0.0) * 100.0).round() as i64;
         let kontostand_cents = (cell(4).as_f64().unwrap_or(0.0) * 100.0).round() as i64;
         let external_ref = text(25);
+        let contract_turnus = text(15);
+        let contract_id_raw = text(16);
 
         rows.push(RawRow {
             booking_date,
@@ -111,6 +117,9 @@ pub fn parse_xlsx(path: impl AsRef<Path>) -> Result<Vec<RawRow>, SeedError> {
             unterkategorie: text(13),
             is_transfer: text(17) == "ja",
             external_ref: if external_ref.is_empty() { None } else { Some(external_ref) },
+            is_contract: text(14) == "ja",
+            contract_turnus: if contract_turnus.is_empty() { None } else { Some(contract_turnus) },
+            contract_id_raw: if contract_id_raw.is_empty() { None } else { Some(contract_id_raw) },
         });
     }
     Ok(rows)
@@ -153,8 +162,14 @@ pub fn seed(conn: &mut Connection, rows: &[RawRow], account_refs: &AccountRefs) 
     let mut merchant_categories: HashMap<String, HashMap<i64, usize>> = HashMap::new();
     let mut token_counts: HashMap<(String, i64), i64> = HashMap::new();
     let mut month_end_balance: HashMap<(i64, String), (NaiveDate, i64)> = HashMap::new();
+    let mut contract_groups: HashMap<String, Vec<&RawRow>> = HashMap::new();
 
     for row in rows {
+        if row.is_contract {
+            if let Some(contract_id_raw) = &row.contract_id_raw {
+                contract_groups.entry(contract_id_raw.clone()).or_default().push(row);
+            }
+        }
         let account_id = account_refs
             .resolve(&row.account_ref)
             .ok_or_else(|| SeedError::UnknownAccountRef(row.account_ref.clone()))?;
@@ -271,8 +286,68 @@ pub fn seed(conn: &mut Connection, rows: &[RawRow], account_refs: &AccountRefs) 
         summary.balance_snapshots_created += 1;
     }
 
+    // 6. Contracts: one per distinct Analyse-Vertrags-ID, imported as `confirmed` — the
+    // seed doubles as a recall/acceptance test for the detector's tolerances (§8). Merging
+    // near-duplicate contracts (Otto ×3, Cleverbridge spelling variants, …) is a live
+    // detection-engine concern, not part of seeding — the asset is explicit that Finanzguru's
+    // own per-mandate split is preserved 1:1 here.
+    for (contract_id_raw, group) in &contract_groups {
+        let representative = group[0];
+        let direction = if representative.hauptkategorie == "Einnahmen" { "income" } else { "expense" };
+        let interval = match representative.contract_turnus.as_deref() {
+            Some("woechentlich") => "weekly",
+            Some("zweiwoechentlich") => "biweekly",
+            Some("monatlich") => "monthly",
+            Some("vierteljaehrlich") => "quarterly",
+            Some("jaehrlich") => "yearly",
+            _ => {
+                return Err(SeedError::Xlsx(format!(
+                    "contract {contract_id_raw} has unrecognized/missing Vertragsturnus"
+                )))
+            }
+        };
+
+        let amount_cents = mode_or_median_abs(group.iter().map(|r| r.amount_cents));
+        let tolerance = if direction == "income" {
+            (amount_cents as f64 * 0.25).round() as i64
+        } else {
+            (amount_cents as f64 * 0.10).round().max(100.0) as i64
+        };
+
+        let category_id = *category_ids
+            .get(&(representative.hauptkategorie.clone(), representative.unterkategorie.clone()))
+            .expect("contract row's category was seeded in step 1");
+        let normalized_counterparty = normalize_merchant(&representative.counterparty_raw);
+
+        tx.execute(
+            "INSERT INTO contract (
+                normalized_counterparty, direction, expected_amount_cents, tolerance,
+                interval, category_id, status
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'confirmed')",
+            (normalized_counterparty, direction, amount_cents, tolerance, interval, category_id),
+        )?;
+        summary.contracts_created += 1;
+    }
+
     tx.commit()?;
     Ok(summary)
+}
+
+/// The most common absolute value in `values`, or the median when every value is
+/// distinct — used as a Contract's representative expected amount.
+fn mode_or_median_abs(values: impl Iterator<Item = i64>) -> i64 {
+    let mut abs_values: Vec<i64> = values.map(i64::abs).collect();
+    let mut counts: HashMap<i64, usize> = HashMap::new();
+    for &v in &abs_values {
+        *counts.entry(v).or_insert(0) += 1;
+    }
+    if let Some((&mode, &count)) = counts.iter().max_by_key(|(_, &c)| c) {
+        if count > 1 {
+            return mode;
+        }
+    }
+    abs_values.sort_unstable();
+    abs_values[abs_values.len() / 2]
 }
 
 #[cfg(test)]
@@ -303,7 +378,24 @@ mod tests {
             unterkategorie: sub.to_string(),
             is_transfer,
             external_ref: None,
+            is_contract: false,
+            contract_turnus: None,
+            contract_id_raw: None,
         }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn contract_row(
+        date: (i32, u32, u32),
+        account_ref: &str,
+        amount_cents: i64,
+        counterparty: &str,
+        main: &str,
+        sub: &str,
+        turnus: &str,
+        contract_id: &str,
+    ) -> RawRow {
+        RawRow { is_contract: true, contract_turnus: Some(turnus.to_string()), contract_id_raw: Some(contract_id.to_string()), ..row(date, account_ref, amount_cents, 0, counterparty, "p", main, sub, false) }
     }
 
     fn refs() -> AccountRefs {
@@ -443,5 +535,54 @@ mod tests {
         let rows = vec![row((2022, 1, 1), "SOME-OTHER-REF", -100, -100, "A", "p", "Freizeit", "Sub", false)];
         let result = seed(&mut conn, &rows, &refs());
         assert!(matches!(result, Err(SeedError::UnknownAccountRef(_))));
+    }
+
+    #[test]
+    fn seeds_one_confirmed_contract_per_distinct_vertrags_id() {
+        let mut conn = open_test_db();
+        let rows = vec![
+            contract_row((2022, 5, 1), "GIRO-IBAN", -1499, "Netflix", "Freizeit", "Streaming", "monatlich", "C1"),
+            contract_row((2022, 6, 1), "GIRO-IBAN", -1499, "Netflix", "Freizeit", "Streaming", "monatlich", "C1"),
+            contract_row((2022, 6, 15), "GIRO-IBAN", -999, "HelloFre sh", "Essen & Trinken", "Lieferservice", "zweiwoechentlich", "C2"),
+        ];
+        let summary = seed(&mut conn, &rows, &refs()).unwrap();
+        assert_eq!(summary.contracts_created, 2);
+
+        let (interval, direction, amount, status): (String, String, i64, String) = conn
+            .query_row(
+                "SELECT interval, direction, expected_amount_cents, status FROM contract WHERE normalized_counterparty = 'netflix'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(interval, "monthly");
+        assert_eq!(direction, "expense");
+        assert_eq!(amount, 1499);
+        assert_eq!(status, "confirmed");
+
+        let biweekly_merchant: String = conn
+            .query_row("SELECT normalized_counterparty FROM contract WHERE interval = 'biweekly'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(biweekly_merchant, "hellofresh");
+    }
+
+    #[test]
+    fn contract_tolerance_differs_by_direction() {
+        let mut conn = open_test_db();
+        let rows = vec![
+            contract_row((2022, 5, 1), "GIRO-IBAN", 300000, "Employer", "Einnahmen", "Lohn / Gehalt", "monatlich", "SALARY"),
+            contract_row((2022, 5, 1), "GIRO-IBAN", -1000, "Gym", "Freizeit", "Fitness", "monatlich", "GYM"),
+        ];
+        seed(&mut conn, &rows, &refs()).unwrap();
+
+        let income_tolerance: i64 = conn
+            .query_row("SELECT tolerance FROM contract WHERE direction = 'income'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(income_tolerance, 75000); // 25% of 300000
+
+        let expense_tolerance: i64 = conn
+            .query_row("SELECT tolerance FROM contract WHERE direction = 'expense'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(expense_tolerance, 100); // max(1€, 10% of 1000=100)
     }
 }
