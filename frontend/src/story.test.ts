@@ -2,13 +2,23 @@ import { Story } from 'foldkit'
 import { describe, expect, test } from 'vitest'
 
 import {
+  ClickedImportCsv,
   ClickedNavItem,
   ClickedSetBudgetTarget,
+  FailedImportCsv,
+  FetchAccountCards,
+  FetchedAccountCards,
   FetchedCategories,
   FetchedCategoryDetail,
+  FetchedOverview,
   FetchedTransactions,
   FetchCategoryDetail,
+  FetchOverview,
   FetchTransactions,
+  ImportCsv,
+  ImportedCsv,
+  PickCsvFile,
+  PickedCsvFile,
   SelectedAccount,
   SelectedCategory,
   SetBudgetTarget,
@@ -47,6 +57,11 @@ const initialModel: Model = {
   vertraegeOverviewError: null,
   vermoegenOverview: null,
   vermoegenOverviewError: null,
+  accountCards: [],
+  accountCardsError: null,
+  importingSource: null,
+  lastImportSummary: null,
+  importError: null,
 }
 
 describe('update', () => {
@@ -176,6 +191,72 @@ describe('update', () => {
         expect(model.budgetFormCategoryId).toBe(7)
         expect(model.budgetFormAmount).toBe('250')
       }),
+    )
+  })
+
+  test('ClickedImportCsv opens the file picker', () => {
+    Story.story(
+      update,
+      Story.with(initialModel),
+      Story.message(ClickedImportCsv({ source: 'paypal' })),
+      Story.Command.expectExact(PickCsvFile({ source: 'paypal' })),
+      Story.model(model => {
+        expect(model.importingSource).toBe('paypal')
+      }),
+      Story.Command.resolve(PickCsvFile, PickedCsvFile({ source: 'paypal', path: null })),
+    )
+  })
+
+  test('cancelling the file picker clears importingSource without importing', () => {
+    Story.story(
+      update,
+      Story.with({ ...initialModel, importingSource: 'paypal' }),
+      Story.message(PickedCsvFile({ source: 'paypal', path: null })),
+      Story.Command.expectNone(),
+      Story.model(model => {
+        expect(model.importingSource).toBeNull()
+      }),
+    )
+  })
+
+  test('picking a file triggers the import Command', () => {
+    Story.story(
+      update,
+      Story.with({ ...initialModel, importingSource: 'paypal' }),
+      Story.message(PickedCsvFile({ source: 'paypal', path: '/tmp/export.csv' })),
+      Story.Command.expectExact(ImportCsv({ source: 'paypal', path: '/tmp/export.csv' })),
+      Story.Command.resolve(ImportCsv, FailedImportCsv({ error: 'ignored in this test' })),
+    )
+  })
+
+  test('ImportedCsv clears importingSource and stores the summary', () => {
+    Story.story(
+      update,
+      Story.with({ ...initialModel, importingSource: 'paypal' }),
+      Story.message(
+        ImportedCsv({
+          summary: { imported: 3, duplicate_skipped: 1, malformed_skipped: 0, malformed_reasons: [], flagged_for_review: 0 },
+        }),
+      ),
+      Story.Command.expectHas(FetchTransactions),
+      Story.model(model => {
+        expect(model.importingSource).toBeNull()
+        expect(model.lastImportSummary?.imported).toBe(3)
+      }),
+      Story.Command.resolveAll(
+        [FetchAccountCards, FetchedAccountCards({ cards: [] })],
+        [FetchTransactions, FetchedTransactions({ transactions: [] })],
+        [
+          FetchOverview,
+          FetchedOverview({
+            overview: {
+              current: { month: '2024-05', einnahmen_cents: 0, ausgaben_cents: 0, sparquote_percent: 0, puffer_cents: 0 },
+              previous: { month: '2024-04', einnahmen_cents: 0, ausgaben_cents: 0, sparquote_percent: 0, puffer_cents: 0 },
+              sparkline: [],
+            },
+          }),
+        ],
+      ),
     )
   })
 })

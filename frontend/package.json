@@ -17,6 +17,7 @@
     "@foldkit/ui": "0.131.0",
     "@tailwindcss/vite": "^4.3.1",
     "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-dialog": "^2.7.2",
     "effect": "4.0.0-beta.97",
     "foldkit": "0.131.0",
     "tailwindcss": "^4.3.1"

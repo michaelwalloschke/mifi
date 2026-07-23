@@ -11,6 +11,7 @@ pub struct AppState {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
+    .plugin(tauri_plugin_dialog::init())
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(
@@ -37,7 +38,9 @@ pub fn run() {
       commands::get_budget_overview,
       commands::set_budget_target,
       commands::get_vertraege_overview,
-      commands::get_vermoegen_overview
+      commands::get_vermoegen_overview,
+      commands::get_konten_overview,
+      commands::import_csv
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

@@ -27,6 +27,11 @@ const baseModel: Model = {
   vertraegeOverviewError: null,
   vermoegenOverview: null,
   vermoegenOverviewError: null,
+  accountCards: [],
+  accountCardsError: null,
+  importingSource: null,
+  lastImportSummary: null,
+  importError: null,
 }
 
 describe('Transaktionen screen', () => {
@@ -258,6 +263,41 @@ describe('Vermögen screen', () => {
       Scene.expect(Scene.text('Netto')).toExist(),
       Scene.expect(Scene.text('Depot')).toExist(),
       Scene.expect(Scene.text('Consorsbank Giro')).toExist(),
+    )
+  })
+})
+
+describe('Konten & Sync screen', () => {
+  test('renders account cards and the import summary', () => {
+    const model: Model = {
+      ...baseModel,
+      screen: 'Konten',
+      accountCards: [
+        { id: 1, name: 'Consorsbank Giro', institution: 'Consorsbank', account_type: 'checking', source_kind: 'fints', latest_balance_cents: 123456, last_transaction_date: '2024-05-20' },
+        { id: 5, name: 'PayPal', institution: 'PayPal', account_type: 'e-money', source_kind: 'csv-paypal', latest_balance_cents: null, last_transaction_date: null },
+      ],
+      lastImportSummary: { imported: 12, duplicate_skipped: 3, malformed_skipped: 1, malformed_reasons: ['invalid Datum: x'], flagged_for_review: 0 },
+    }
+
+    Scene.scene(
+      { update, view },
+      Scene.with(model),
+      Scene.expect(Scene.text('Consorsbank Giro')).toExist(),
+      Scene.expect(Scene.text('PayPal')).toExist(),
+      Scene.expect(Scene.text('kein Import')).toExist(),
+      Scene.expect(Scene.text('12 importiert, 3 bereits vorhanden, 1 übersprungen')).toExist(),
+      Scene.expect(Scene.text('invalid Datum: x')).toExist(),
+    )
+  })
+
+  test('disables both import buttons while an import is in flight', () => {
+    const model: Model = { ...baseModel, screen: 'Konten', importingSource: 'paypal' }
+
+    Scene.scene(
+      { update, view },
+      Scene.with(model),
+      Scene.expect(Scene.role('button', { name: 'Importiere …' })).toExist(),
+      Scene.expect(Scene.role('button', { name: 'Importiere …', disabled: true })).toExist(),
     )
   })
 })

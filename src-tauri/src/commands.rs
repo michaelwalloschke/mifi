@@ -5,7 +5,8 @@ use rusqlite::OptionalExtension;
 use serde::Serialize;
 use tauri::State;
 
-use mifi_core::domain::{budget, contract, networth, overview};
+use mifi_core::domain::{budget, contract, networth, overview, transfer};
+use mifi_core::import::{paypal, scalable};
 
 use crate::AppState;
 
@@ -465,4 +466,116 @@ pub fn get_vermoegen_overview(state: State<AppState>) -> Result<VermoegenOvervie
         delta_month_cents: net_cents - previous_net_cents,
         accounts,
     })
+}
+
+// KONTEN & SYNC
+
+const PAYPAL_ACCOUNT_ID: i64 = 5;
+
+#[derive(Debug, Serialize)]
+pub struct AccountCardDto {
+    pub id: i64,
+    pub name: String,
+    pub institution: String,
+    pub account_type: String,
+    pub source_kind: String,
+    pub latest_balance_cents: Option<i64>,
+    pub last_transaction_date: Option<String>,
+}
+
+#[tauri::command]
+pub fn get_konten_overview(state: State<AppState>) -> Result<Vec<AccountCardDto>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare("SELECT id, name, institution, type, source_kind FROM account ORDER BY id")
+        .map_err(|e| e.to_string())?;
+    let accounts = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    accounts
+        .into_iter()
+        .map(|(id, name, institution, account_type, source_kind)| {
+            let latest_balance_cents = if account_type == "depot" {
+                let depot_total = networth::depot_cents(&conn, &chrono::Local::now().format("%Y-%m-%d").to_string())
+                    .map_err(|e| e.to_string())?;
+                Some(depot_total)
+            } else {
+                conn.query_row(
+                    "SELECT balance_cents FROM balance_snapshot WHERE account_id = ?1 ORDER BY date DESC LIMIT 1",
+                    [id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|e| e.to_string())?
+            };
+            let last_transaction_date = conn
+                .query_row(
+                    "SELECT MAX(booking_date) FROM \"transaction\" WHERE account_id = ?1",
+                    [id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+
+            Ok(AccountCardDto { id, name, institution, account_type, source_kind, latest_balance_cents, last_transaction_date })
+        })
+        .collect()
+}
+
+#[derive(Debug, Serialize)]
+pub struct ImportSummaryDto {
+    pub imported: i64,
+    pub duplicate_skipped: i64,
+    pub malformed_skipped: i64,
+    pub malformed_reasons: Vec<String>,
+    pub flagged_for_review: i64,
+}
+
+/// Imports a CSV export from `source` ("paypal" | "scalable") at `path`, commits it,
+/// then re-runs Transfer detection over the whole database — mirroring what a real Sync
+/// Run does at the end (SPEC.md §5). Unknown header/encoding is a hard error (nothing
+/// written); malformed individual rows are skipped and reported, never silently dropped.
+#[tauri::command]
+pub fn import_csv(state: State<AppState>, source: String, path: String) -> Result<ImportSummaryDto, String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+
+    let summary = match source.as_str() {
+        "paypal" => {
+            let parsed = paypal::parse_csv(&path)?;
+            let commit_summary =
+                mifi_core::import::commit(&mut conn, PAYPAL_ACCOUNT_ID, "csv-paypal", &parsed.rows).map_err(|e| e.to_string())?;
+            ImportSummaryDto {
+                imported: commit_summary.imported as i64,
+                duplicate_skipped: commit_summary.duplicate_external_ref_skipped as i64,
+                malformed_skipped: parsed.skipped.len() as i64,
+                malformed_reasons: parsed.skipped.iter().take(5).map(|s| s.reason.clone()).collect(),
+                flagged_for_review: 0,
+            }
+        }
+        "scalable" => {
+            let parsed = scalable::parse_csv(&path)?;
+            let commit_summary = scalable::commit(&mut conn, &parsed.rows).map_err(|e| e.to_string())?;
+            ImportSummaryDto {
+                imported: commit_summary.imported as i64,
+                duplicate_skipped: commit_summary.duplicate_external_ref_skipped as i64,
+                malformed_skipped: parsed.skipped.len() as i64,
+                malformed_reasons: parsed.skipped.iter().take(5).map(|s| s.reason.clone()).collect(),
+                flagged_for_review: parsed.flagged_for_review.len() as i64,
+            }
+        }
+        other => return Err(format!("unknown CSV source: {other}")),
+    };
+
+    transfer::detect(&mut conn).map_err(|e| e.to_string())?;
+    Ok(summary)
 }

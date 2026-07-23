@@ -4,6 +4,7 @@ import { Document, html } from 'foldkit/html'
 import { m } from 'foldkit/message'
 
 import { invoke } from '@tauri-apps/api/core'
+import { open as openFileDialog } from '@tauri-apps/plugin-dialog'
 
 // MODEL
 
@@ -138,7 +139,27 @@ export const VermoegenOverview = S.Struct({
 })
 export type VermoegenOverview = typeof VermoegenOverview.Type
 
-export const Screen = S.Literals(['Uebersicht', 'Transaktionen', 'Kategorien', 'Budget', 'Vertraege', 'Vermoegen'])
+export const AccountCard = S.Struct({
+  id: S.Number,
+  name: S.String,
+  institution: S.String,
+  account_type: S.String,
+  source_kind: S.String,
+  latest_balance_cents: S.NullOr(S.Number),
+  last_transaction_date: S.NullOr(S.String),
+})
+export type AccountCard = typeof AccountCard.Type
+
+export const ImportSummary = S.Struct({
+  imported: S.Number,
+  duplicate_skipped: S.Number,
+  malformed_skipped: S.Number,
+  malformed_reasons: S.Array(S.String),
+  flagged_for_review: S.Number,
+})
+export type ImportSummary = typeof ImportSummary.Type
+
+export const Screen = S.Literals(['Uebersicht', 'Transaktionen', 'Kategorien', 'Budget', 'Vertraege', 'Vermoegen', 'Konten'])
 export type Screen = typeof Screen.Type
 
 export const Model = S.Struct({
@@ -165,6 +186,11 @@ export const Model = S.Struct({
   vertraegeOverviewError: S.NullOr(S.String),
   vermoegenOverview: S.NullOr(VermoegenOverview),
   vermoegenOverviewError: S.NullOr(S.String),
+  accountCards: S.Array(AccountCard),
+  accountCardsError: S.NullOr(S.String),
+  importingSource: S.NullOr(S.String),
+  lastImportSummary: S.NullOr(ImportSummary),
+  importError: S.NullOr(S.String),
 })
 export type Model = typeof Model.Type
 
@@ -195,6 +221,12 @@ export const FetchedVertraegeOverview = m('FetchedVertraegeOverview', { overview
 export const FailedFetchVertraegeOverview = m('FailedFetchVertraegeOverview', { error: S.String })
 export const FetchedVermoegenOverview = m('FetchedVermoegenOverview', { overview: VermoegenOverview })
 export const FailedFetchVermoegenOverview = m('FailedFetchVermoegenOverview', { error: S.String })
+export const FetchedAccountCards = m('FetchedAccountCards', { cards: S.Array(AccountCard) })
+export const FailedFetchAccountCards = m('FailedFetchAccountCards', { error: S.String })
+export const ClickedImportCsv = m('ClickedImportCsv', { source: S.Literals(['paypal', 'scalable']) })
+export const PickedCsvFile = m('PickedCsvFile', { source: S.String, path: S.NullOr(S.String) })
+export const ImportedCsv = m('ImportedCsv', { summary: ImportSummary })
+export const FailedImportCsv = m('FailedImportCsv', { error: S.String })
 
 export const Message = S.Union([
   FetchedAccounts,
@@ -222,6 +254,12 @@ export const Message = S.Union([
   FailedFetchVertraegeOverview,
   FetchedVermoegenOverview,
   FailedFetchVermoegenOverview,
+  FetchedAccountCards,
+  FailedFetchAccountCards,
+  ClickedImportCsv,
+  PickedCsvFile,
+  ImportedCsv,
+  FailedImportCsv,
 ])
 export type Message = typeof Message.Type
 
@@ -344,6 +382,42 @@ export const FetchVermoegenOverview = Command.define(
   ),
 )
 
+export const FetchAccountCards = Command.define('FetchAccountCards', FetchedAccountCards, FailedFetchAccountCards)(
+  Effect.tryPromise(() => invoke<ReadonlyArray<AccountCard>>('get_konten_overview')).pipe(
+    Effect.match({
+      onSuccess: cards => FetchedAccountCards({ cards }),
+      onFailure: error => FailedFetchAccountCards({ error: String(error) }),
+    }),
+  ),
+)
+
+export const PickCsvFile = Command.define(
+  'PickCsvFile',
+  { source: S.Literals(['paypal', 'scalable']) },
+  PickedCsvFile,
+)(({ source }) =>
+  Effect.tryPromise(() => openFileDialog({ multiple: false, filters: [{ name: 'CSV', extensions: ['csv'] }] })).pipe(
+    Effect.match({
+      onSuccess: result => PickedCsvFile({ source, path: typeof result === 'string' ? result : null }),
+      onFailure: () => PickedCsvFile({ source, path: null }),
+    }),
+  ),
+)
+
+export const ImportCsv = Command.define(
+  'ImportCsv',
+  { source: S.String, path: S.String },
+  ImportedCsv,
+  FailedImportCsv,
+)(({ source, path }) =>
+  Effect.tryPromise(() => invoke<ImportSummary>('import_csv', { source, path })).pipe(
+    Effect.match({
+      onSuccess: summary => ImportedCsv({ summary }),
+      onFailure: error => FailedImportCsv({ error: String(error) }),
+    }),
+  ),
+)
+
 // UPDATE
 
 export const update = (
@@ -406,6 +480,21 @@ export const update = (
       FailedFetchVertraegeOverview: ({ error }) => [{ ...model, vertraegeOverviewError: error }, []],
       FetchedVermoegenOverview: ({ overview }) => [{ ...model, vermoegenOverview: overview }, []],
       FailedFetchVermoegenOverview: ({ error }) => [{ ...model, vermoegenOverviewError: error }, []],
+      FetchedAccountCards: ({ cards }) => [{ ...model, accountCards: cards }, []],
+      FailedFetchAccountCards: ({ error }) => [{ ...model, accountCardsError: error }, []],
+      ClickedImportCsv: ({ source }) => [
+        { ...model, importingSource: source, importError: null },
+        [PickCsvFile({ source })],
+      ],
+      PickedCsvFile: ({ source, path }) =>
+        path === null
+          ? [{ ...model, importingSource: null }, []]
+          : [model, [ImportCsv({ source, path })]],
+      ImportedCsv: ({ summary }) => [
+        { ...model, importingSource: null, lastImportSummary: summary, importError: null },
+        [FetchAccountCards(), FetchTransactions({ accountId: model.selectedAccountId, search: model.search }), FetchOverview()],
+      ],
+      FailedImportCsv: ({ error }) => [{ ...model, importingSource: null, importError: error }, []],
     }),
   )
 
@@ -436,6 +525,11 @@ export const init: Runtime.ApplicationInit<Model, Message> = () => [
     vertraegeOverviewError: null,
     vermoegenOverview: null,
     vermoegenOverviewError: null,
+    accountCards: [],
+    accountCardsError: null,
+    importingSource: null,
+    lastImportSummary: null,
+    importError: null,
   },
   [
     FetchAccounts(),
@@ -445,6 +539,7 @@ export const init: Runtime.ApplicationInit<Model, Message> = () => [
     FetchBudgetOverview(),
     FetchVertraegeOverview(),
     FetchVermoegenOverview(),
+    FetchAccountCards(),
   ],
 ]
 
@@ -471,6 +566,13 @@ const formatBookingDate = (isoDate: string): string => {
   return `${Number(day)}. ${monthNames[Number(month) - 1]}`
 }
 
+const latestActivityLabel = (cards: ReadonlyArray<AccountCard>): string => {
+  const dates = cards.map(c => c.last_transaction_date).filter((d): d is string => d !== null)
+  if (dates.length === 0) return 'kein Import'
+  const latest = dates.reduce((a, b) => (a > b ? a : b))
+  return formatBookingDate(latest)
+}
+
 const groupByBookingDate = (
   transactions: ReadonlyArray<Transaction>,
 ): ReadonlyArray<readonly [string, ReadonlyArray<Transaction>]> => {
@@ -495,7 +597,7 @@ const NAV_ITEMS: ReadonlyArray<{ label: string; screen: Screen | null }> = [
   { label: 'Budget', screen: 'Budget' },
   { label: 'Verträge', screen: 'Vertraege' },
   { label: 'Vermögen', screen: 'Vermoegen' },
-  { label: 'Konten', screen: null },
+  { label: 'Konten', screen: 'Konten' },
 ]
 
 const sidebar = (h: ReturnType<typeof html<Message>>, model: Model) =>
@@ -526,7 +628,23 @@ const sidebar = (h: ReturnType<typeof html<Message>>, model: Model) =>
           ),
         ],
       ),
-      h.div([h.Class('text-xs text-black/40 dark:text-white/40 px-2')], ['Konten & Sync — nicht implementiert']),
+      h.div(
+        [h.Class('px-2')],
+        [
+          h.div(
+            [h.Class('text-xs text-black/40 dark:text-white/40 mb-2')],
+            [`Zuletzt: ${latestActivityLabel(model.accountCards)}`],
+          ),
+          h.button(
+            [
+              h.Class('w-full rounded-[10px] bg-black/5 dark:bg-white/10 text-black/40 dark:text-white/40 px-3 py-1.5 text-sm cursor-not-allowed'),
+              h.Disabled(true),
+              h.Title('FinTS/scalable-cli-Anbindung noch nicht gebaut — Import läuft über CSV (Konten & Sync)'),
+            ],
+            ['Synchronisieren'],
+          ),
+        ],
+      ),
     ],
   )
 
@@ -1095,6 +1213,89 @@ const vermoegenScreen = (h: ReturnType<typeof html<Message>>, model: Model) => {
   )
 }
 
+const SOURCE_LABELS: Record<string, string> = {
+  fints: 'FinTS',
+  'scalable-cli': 'scalable-cli',
+  'csv-paypal': 'PayPal-CSV',
+}
+
+const accountCard = (h: ReturnType<typeof html<Message>>, account: AccountCard) =>
+  h.keyed('div')(
+    account.id,
+    [h.Class('rounded-[10px] border border-black/10 dark:border-white/10 p-4')],
+    [
+      h.div([h.Class('font-medium')], [account.name]),
+      h.div([h.Class('text-xs text-black/40 dark:text-white/40 mb-3')], [account.institution]),
+      h.div(
+        [h.Class('text-xl font-semibold tabular-nums mb-1')],
+        [account.latest_balance_cents === null ? '—' : formatAmountCents(account.latest_balance_cents)],
+      ),
+      h.div(
+        [h.Class('flex items-center justify-between text-xs text-black/40 dark:text-white/40')],
+        [
+          h.div([], [SOURCE_LABELS[account.source_kind] ?? account.source_kind]),
+          h.div([], [account.last_transaction_date ? formatBookingDate(account.last_transaction_date) : 'kein Import']),
+        ],
+      ),
+    ],
+  )
+
+const importButton = (h: ReturnType<typeof html<Message>>, model: Model, source: 'paypal' | 'scalable', label: string) =>
+  h.button(
+    [
+      h.Class('rounded-[10px] border border-black/10 dark:border-white/20 px-4 py-2 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50'),
+      h.Disabled(model.importingSource !== null),
+      h.OnClick(ClickedImportCsv({ source })),
+    ],
+    [model.importingSource === source ? 'Importiere …' : label],
+  )
+
+const kontenScreen = (h: ReturnType<typeof html<Message>>, model: Model) =>
+  h.div(
+    [h.Class('flex-1 p-8 overflow-y-auto')],
+    [
+      h.div([h.Class('text-2xl font-semibold mb-6')], ['Konten & Sync']),
+      model.accountCardsError ? h.div([h.Class('text-red-600 mb-4')], [model.accountCardsError]) : h.empty,
+      h.div([h.Class('grid grid-cols-3 gap-4 mb-6')], model.accountCards.map(account => accountCard(h, account))),
+      h.div(
+        [h.Class('rounded-[10px] border border-black/10 dark:border-white/10 p-4')],
+        [
+          h.div([h.Class('text-sm text-black/40 dark:text-white/40 mb-3')], ['CSV-Import']),
+          h.div(
+            [h.Class('flex gap-2 items-center mb-3')],
+            [
+              importButton(h, model, 'paypal', 'PayPal-Export importieren …'),
+              importButton(h, model, 'scalable', 'Scalable-Export importieren …'),
+            ],
+          ),
+          model.importError ? h.div([h.Class('text-red-600 text-sm mb-2')], [`Fehler: ${model.importError}`]) : h.empty,
+          model.lastImportSummary
+            ? h.div(
+                [h.Class('text-sm')],
+                [
+                  h.div(
+                    [],
+                    [
+                      `${model.lastImportSummary.imported} importiert, ${model.lastImportSummary.duplicate_skipped} bereits vorhanden, ${model.lastImportSummary.malformed_skipped} übersprungen`,
+                    ],
+                  ),
+                  ...model.lastImportSummary.malformed_reasons.map(reason =>
+                    h.div([h.Class('text-xs text-black/40 dark:text-white/40')], [reason]),
+                  ),
+                  model.lastImportSummary.flagged_for_review > 0
+                    ? h.div(
+                        [h.Class('text-xs text-amber-600')],
+                        [`${model.lastImportSummary.flagged_for_review} Zeile(n) zur Prüfung markiert (Rundung)`],
+                      )
+                    : h.empty,
+                ],
+              )
+            : h.empty,
+        ],
+      ),
+    ],
+  )
+
 const screenTitles: Record<Screen, string> = {
   Uebersicht: 'Übersicht',
   Transaktionen: 'Transaktionen',
@@ -1102,6 +1303,7 @@ const screenTitles: Record<Screen, string> = {
   Budget: 'Budget',
   Vertraege: 'Verträge',
   Vermoegen: 'Vermögen',
+  Konten: 'Konten & Sync',
 }
 
 const screenView = (h: ReturnType<typeof html<Message>>, model: Model) => {
@@ -1116,6 +1318,8 @@ const screenView = (h: ReturnType<typeof html<Message>>, model: Model) => {
       return vertraegeScreen(h, model)
     case 'Vermoegen':
       return vermoegenScreen(h, model)
+    case 'Konten':
+      return kontenScreen(h, model)
     case 'Transaktionen':
       return transaktionenScreen(h, model)
   }
